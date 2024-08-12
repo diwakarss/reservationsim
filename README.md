@@ -1,6 +1,6 @@
 # Reservation Simulator
 
-![Reservation Simulator](path_to_screenshot) <!-- Replace with an actual path to a screenshot of your app -->
+![Reservation Simulator](/reservation-simulator.png)
 
 ## Introduction
 
@@ -14,15 +14,14 @@ The **Reservation Simulator** is a computational model designed to simulate the 
 - **Job Access**: Simulate economic opportunities and employment rates for different social classes.
 - **Wealth Distribution**: Visualize economic inequality across social classes.
 - **Social Indicators**: Track health outcomes, crime rates, and trust in government for different social classes.
+- **AI-Powered Name and Description Generation**: The simulator uses OpenAI's API to generate names and descriptions dynamically.
 
-## Key Parameters
+## Prerequisites
 
-- **Population Distribution**: Reflects the division of the population into five social classes.
-- **Fertility Rate**: Varies across social classes, influenced by socioeconomic status.
-- **Education Access**: Enrollment and literacy rates differ significantly among classes.
-- **Job Access**: Employment rates and job security vary by class.
-- **Wealth Distribution**: A critical factor in understanding economic inequality.
-- **Social Indicators**: Includes life expectancy, infant mortality rate, crime rates, and trust in government.
+Before running the project, ensure you have the following installed:
+
+- **Node.js**: [Download and install Node.js](https://nodejs.org/)
+- **OpenAI API Key**: Sign up for an API key at [OpenAI](https://beta.openai.com/signup/).
 
 ## Installation
 
@@ -43,7 +42,23 @@ To run the Reservation Simulator locally, follow these steps:
    npm install
    ```
 
-3. **Run the Development Server**
+3. **Set Up Environment Variables**
+
+   The project requires an OpenAI API key to generate names and descriptions. Create a `.env` file in the root directory of the project:
+
+   ```bash
+   touch .env
+   ```
+
+   Add your OpenAI API key to the `.env` file:
+
+   ```plaintext
+   OPENAI_API_KEY=your_openai_api_key_here
+   ```
+
+   Replace `your_openai_api_key_here` with your actual OpenAI API key.
+
+4. **Run the Development Server**
 
    Start the development server:
 
@@ -67,6 +82,7 @@ To run the Reservation Simulator locally, follow these steps:
 - **`lib/`**: Includes functions for generating names, traits, and descriptions.
 - **`config/initialParameters.ts`**: Defines the initial parameters for the simulation, including population distribution, fertility rates, education access, job access, wealth distribution, and social indicators.
 - **`pages/`**: Next.js pages for rendering the UI.
+- **`.env`**: Contains environment variables like the OpenAI API key.
 
 ## Data Sources
 
@@ -91,5 +107,6 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 - The **Reservation Simulator** draws inspiration from various real-world datasets and sociological studies.
 - Special thanks to the contributors and the open-source community for their valuable input.
+- This project utilizes the [OpenAI API](https://openai.com/api/) for generating dynamic content.
 
 ---

@@ -120,3 +120,33 @@ export function calculateSocialIndicators(socialClasses: string[]): any {
     }, 0) / socialClasses.length,
   };
 }
+
+export function calculateAggregatedCrimeRate(socialClasses: string[]): string {
+  const crimeRateCounts: Record<string, number> = {
+    'Very low': 0,
+    'Low': 0,
+    'Medium': 0,
+    'High': 0,
+    'Very high': 0,
+  };
+
+  socialClasses.forEach((_, index) => {
+    const classKey = `class${index + 1}` as keyof typeof initialParameters.socialIndicators.crimeRates;
+    const crimeRate = initialParameters.socialIndicators.crimeRates[classKey];
+    if (crimeRate) {
+      crimeRateCounts[crimeRate]++;
+    }
+  });
+
+  // Determine the most common crime rate
+  let maxCount = 0;
+  let mostCommonCrimeRate = 'medium'; // default if all counts are equal
+  for (const rate in crimeRateCounts) {
+    if (crimeRateCounts[rate] > maxCount) {
+      maxCount = crimeRateCounts[rate];
+      mostCommonCrimeRate = rate;
+    }
+  }
+
+  return mostCommonCrimeRate;
+}

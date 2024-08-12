@@ -14,13 +14,13 @@ export interface Trait {
 
 export type SocialClass = 'class1' | 'class2' | 'class3' | 'class4' | 'class5';
 
-export async function generateSocialClasses(trait: Trait): Promise<SocialClass[]> {
+export async function generateSocialClasses(trait: Trait, planetName: string, countryName: string): Promise<SocialClass[]> {
   const response = await fetch('/api/generate-social-classes', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ trait }),
+    body: JSON.stringify({ trait, planetName, countryName }),
   });
   if (!response.ok) {
     throw new Error('Failed to generate social classes');

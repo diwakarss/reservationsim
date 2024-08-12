@@ -93,5 +93,3 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 - Special thanks to the contributors and the open-source community for their valuable input.
 
 ---
-
-This README provides a comprehensive overview of your project, detailing its purpose, features, installation instructions, usage, project structure, and more. Feel free to customize it further to suit your specific project needs.

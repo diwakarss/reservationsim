@@ -68,29 +68,55 @@ export const initialParameters = {
   },
 };
 
-export function calculateFertilityRate(socialClasses: SocialClass[]): number {
-  return socialClasses.reduce((acc, className) => acc + initialParameters.fertilityRateDistribution[className], 0) / socialClasses.length;
+export function calculateFertilityRate(socialClasses: string[]): number {
+  return socialClasses.reduce((acc, _, index) => {
+    const classKey = `class${index + 1}` as keyof typeof initialParameters.fertilityRateDistribution;
+    return acc + (initialParameters.fertilityRateDistribution[classKey] || 2.5);
+  }, 0) / socialClasses.length;
 }
 
-export function calculateEducationAccess(socialClasses: SocialClass[]): number {
-  return socialClasses.reduce((acc, className) => acc + initialParameters.educationAccess[className].primary, 0) / socialClasses.length;
+export function calculateEducationAccess(socialClasses: string[]): number {
+  const defaultAccess = 0.5; // Default access value
+  let totalAccess = 0;
+  
+  socialClasses.forEach((className, index) => {
+    const classKey = `class${index + 1}` as keyof typeof initialParameters.educationAccess;
+    const classAccess = initialParameters.educationAccess[classKey];
+    if (classAccess) {
+      totalAccess += (classAccess.primary + classAccess.secondary + classAccess.tertiary) / 3;
+    } else {
+      totalAccess += defaultAccess;
+    }
+  });
+
+  return totalAccess / socialClasses.length;
 }
 
-export function calculateJobAccess(socialClasses: SocialClass[]): number {
-  return socialClasses.reduce((acc, className) => acc + initialParameters.jobAccess[className], 0) / socialClasses.length;
+export function calculateJobAccess(socialClasses: string[]): number {
+  return socialClasses.reduce((acc, _, index) => {
+    const classKey = `class${index + 1}` as keyof typeof initialParameters.jobAccess;
+    return acc + (initialParameters.jobAccess[classKey] || 0.5);
+  }, 0) / socialClasses.length;
 }
 
-export function calculateWealthDistribution(socialClasses: SocialClass[]): number {
-  return socialClasses.reduce((acc, className) => acc + initialParameters.wealthDistribution[className], 0) / socialClasses.length;
+export function calculateWealthDistribution(socialClasses: string[]): number {
+  return socialClasses.reduce((acc, _, index) => {
+    const classKey = `class${index + 1}` as keyof typeof initialParameters.wealthDistribution;
+    return acc + (initialParameters.wealthDistribution[classKey] || 0.2);
+  }, 0) / socialClasses.length;
 }
 
-export function calculateSocialIndicators(socialClasses: SocialClass[]): any {
+export function calculateSocialIndicators(socialClasses: string[]): any {
   return {
     lifeExpectancy: (initialParameters.socialIndicators.lifeExpectancy.class1 + initialParameters.socialIndicators.lifeExpectancy.class5) / 2,
     infantMortalityRate: (initialParameters.socialIndicators.infantMortalityRate.class1 + initialParameters.socialIndicators.infantMortalityRate.class5) / 2,
-    crimeRates: socialClasses.map(className => 
-      initialParameters.socialIndicators.crimeRates[className as keyof typeof initialParameters.socialIndicators.crimeRates] || 'unknown'
-    ),
-    trustInGovernment: socialClasses.reduce((acc, className) => acc + (initialParameters.socialIndicators.trustInGovernment[className] || 0), 0) / socialClasses.length,
+    crimeRates: socialClasses.map((_, index) => {
+      const classKey = `class${index + 1}` as keyof typeof initialParameters.socialIndicators.crimeRates;
+      return initialParameters.socialIndicators.crimeRates[classKey] || 'medium';
+    }),
+    trustInGovernment: socialClasses.reduce((acc, _, index) => {
+      const classKey = `class${index + 1}` as keyof typeof initialParameters.socialIndicators.trustInGovernment;
+      return acc + (initialParameters.socialIndicators.trustInGovernment[classKey] || 0.5);
+    }, 0) / socialClasses.length,
   };
 }

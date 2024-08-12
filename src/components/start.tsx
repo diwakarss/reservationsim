@@ -5,12 +5,13 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { generatePlanetName, generateCountryName, generateSocialClasses, generateTrait, generatePopulation, Trait, SocialClass } from '../lib/nameGenerator';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { generateTraitDescription, generateClassDescription } from '../lib/descriptionGenerator';
 import { initialParameters } from '../config/initialParameters';
 import { calculateFertilityRate, calculateEducationAccess, calculateJobAccess, calculateWealthDistribution, calculateSocialIndicators } from '../config/initialParameters';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 export function Start({ onStartSimulation }: { onStartSimulation: () => void }) {
+  // State declarations
   const [planetName, setPlanetName] = useState('');
   const [countryName, setCountryName] = useState('');
   const [trait, setTrait] = useState<Trait | null>(null);
@@ -19,16 +20,37 @@ export function Start({ onStartSimulation }: { onStartSimulation: () => void }) 
   const [classDescriptions, setClassDescriptions] = useState<Record<string, string>>({});
   const [socialClasses, setSocialClasses] = useState<SocialClass[]>([]);
   const [population, setPopulation] = useState('');
-  const [majorMetrics, setMajorMetrics] = useState<Record<string, any>>({});
+  const [majorMetrics, setMajorMetrics] = useState({
+    fertilityRate: 0,
+    educationAccess: 0,
+    jobAccess: 0,
+    wealthDistribution: 0,
+    socialIndicators: {
+      lifeExpectancy: 0,
+      infantMortalityRate: 0,
+      crimeRates: [],
+      trustInGovernment: 0
+    }
+  });
   
+  // Ref to track if the component has initialized
+  const isInitialized = useRef(false);
 
-  const isInitialized = useRef(false); // To track if the component has initialized
-
+  // Helper function to capitalize first letter of each word
   const capitalizeFirstLetter = (string: string | undefined) => {
     if (!string) return '';
     return string.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
   };
 
+  // Function to update trait description
+  const updateTraitDescription = useCallback(async (newTrait: Trait, planetName: string, countryName: string) => {
+    if (newTrait && planetName && countryName) {
+      const description = await generateTraitDescription(newTrait, planetName, countryName);
+      setTraitDescription(description);
+    }
+  }, []);
+
+  // Function to generate a new trait
   const handleGenerateTrait = useCallback(async () => {
     try {
       setError(null);
@@ -42,45 +64,41 @@ export function Start({ onStartSimulation }: { onStartSimulation: () => void }) 
       setError('Failed to generate trait. Please try again.');
       console.error(err);
     }
-  }, [planetName, countryName]);
+  }, [planetName, countryName, updateTraitDescription]);
 
-  const updateTraitDescription = useCallback(async (newTrait: Trait, planetName: string, countryName: string) => {
-    if (newTrait && planetName && countryName) {
-      const description = await generateTraitDescription(newTrait, planetName, countryName);
-      setTraitDescription(description);
-    }
-  }, []);
-
+  // Function to calculate major metrics
   const calculateMajorMetrics = useCallback(() => {
-    // Assume functions like calculateFertilityRate, calculateEducationAccess, etc., are predefined
-   const fertilityRate = calculateFertilityRate(socialClasses);
-    const educationAccess = calculateEducationAccess(socialClasses);
-    const jobAccess = calculateJobAccess(socialClasses);
-    const wealthDistribution = calculateWealthDistribution(socialClasses);
-    const socialIndicators = calculateSocialIndicators(socialClasses);
+    if (socialClasses.length === 0) return;
 
-    setMajorMetrics({
-      fertilityRate,
-      educationAccess,
-      jobAccess,
-      wealthDistribution,
-      socialIndicators,
-    });
+    const newMetrics = {
+      fertilityRate: Number(calculateFertilityRate(socialClasses).toFixed(2)),
+      educationAccess: Number(calculateEducationAccess(socialClasses).toFixed(2)),
+      jobAccess: Number(calculateJobAccess(socialClasses).toFixed(2)),
+      wealthDistribution: Number(calculateWealthDistribution(socialClasses).toFixed(2)),
+      socialIndicators: {
+        lifeExpectancy: Number(calculateSocialIndicators(socialClasses).lifeExpectancy.toFixed(2)),
+        infantMortalityRate: Number(calculateSocialIndicators(socialClasses).infantMortalityRate.toFixed(2)),
+        crimeRates: calculateSocialIndicators(socialClasses).crimeRates,
+        trustInGovernment: Number(calculateSocialIndicators(socialClasses).trustInGovernment.toFixed(2))
+      }
+    };
+
+    setMajorMetrics(newMetrics);
+    console.log('Updated metrics:', newMetrics);
   }, [socialClasses]);
 
+  // Function to update simulation data
   const updateData = useCallback(async () => {
-    if (!trait || !planetName || !countryName) return;
+    if (!trait || !planetName || !countryName || isInitialized.current) return;
 
-    console.log('Updating data');
     try {
-      const classes = await generateSocialClasses(trait);
-      setSocialClasses((prevClasses) => {
-        if (JSON.stringify(prevClasses) === JSON.stringify(classes)) {
-          return prevClasses; // No change, avoid re-render
-        }
-        return classes;
-      });
+      isInitialized.current = true;
 
+      // Generate and update social classes
+      const classes = await generateSocialClasses(trait);
+      setSocialClasses(classes);
+
+      // Generate and update class descriptions
       const descriptions = await Promise.all(
         classes.map(async (className) => {
           try {
@@ -93,16 +111,16 @@ export function Start({ onStartSimulation }: { onStartSimulation: () => void }) 
         })
       );
 
-      setClassDescriptions((prevDescriptions) => {
-        const newDescriptions = Object.fromEntries(descriptions);
-        if (JSON.stringify(prevDescriptions) === JSON.stringify(newDescriptions)) {
-          return prevDescriptions; // No change, avoid re-render
-        }
-        return newDescriptions;
-      });
+      setClassDescriptions(Object.fromEntries(descriptions));
 
-      // Recalculate metrics after updating data
+      // Update trait description
+      const traitDesc = await generateTraitDescription(trait, planetName, countryName);
+      setTraitDescription(traitDesc);
+
+      // Recalculate metrics
       calculateMajorMetrics();
+
+      console.log('Updated data with planet:', planetName, 'country:', countryName);
 
     } catch (error) {
       console.error("Error updating data:", error);
@@ -110,26 +128,32 @@ export function Start({ onStartSimulation }: { onStartSimulation: () => void }) 
     }
   }, [trait, planetName, countryName, calculateMajorMetrics]);
 
+  // Function to randomize all values
   const handleRandomize = useCallback(async () => {
-    if (isInitialized.current) return; // Skip if already initialized
+    if (isInitialized.current) return;
 
-    console.log('Randomizing values');
     try {
-      const [newTrait, newPlanetName, newCountryName] = await Promise.all([
-        generateTrait(),
-        generatePlanetName(),
-        generateCountryName(),
-      ]);
+      // Generate new values
+      const newPlanetName = await generatePlanetName();
+      const newCountryName = await generateCountryName();
+      const newPopulation = generatePopulation();
+      const newTrait = await generateTrait();
 
-      setTrait(newTrait);
+      // Update state with new values
       setPlanetName(newPlanetName);
       setCountryName(newCountryName);
-      setPopulation(generatePopulation());
+      setPopulation(newPopulation);
+      setTrait(newTrait);
+
+      // Generate and update social classes
       const classes = await generateSocialClasses(newTrait);
       setSocialClasses(classes);
-      updateTraitDescription(newTrait, newPlanetName, newCountryName);
 
-      // Generate descriptions for social classes
+      // Update trait description
+      const traitDesc = await generateTraitDescription(newTrait, newPlanetName, newCountryName);
+      setTraitDescription(traitDesc);
+
+      // Generate and update class descriptions
       const descriptions = await Promise.all(
         classes.map(async (className) => {
           try {
@@ -146,25 +170,76 @@ export function Start({ onStartSimulation }: { onStartSimulation: () => void }) 
       // Calculate initial metrics
       calculateMajorMetrics();
 
-      isInitialized.current = true; // Mark as initialized
+      console.log('Updated planet:', newPlanetName, 'country:', newCountryName);
+
+      isInitialized.current = true;
     } catch (error) {
       setError("Failed to randomize data. Please try again.");
       console.error("Error during randomize:", error);
     }
+  }, [calculateMajorMetrics]);
+
+  // Effect to initialize component
+  useEffect(() => {
+    const initializeComponent = async () => {
+      if (isInitialized.current) return;
+
+      try {
+        const newPlanetName = await generatePlanetName();
+        const newCountryName = await generateCountryName();
+        const newPopulation = generatePopulation();
+        const newTrait = await generateTrait();
+
+        setPlanetName(newPlanetName);
+        setCountryName(newCountryName);
+        setPopulation(newPopulation);
+        setTrait(newTrait);
+
+        const classes = await generateSocialClasses(newTrait);
+        setSocialClasses(classes);
+
+        updateTraitDescription(newTrait, newPlanetName, newCountryName);
+
+        const descriptions = await Promise.all(
+          classes.map(async (className) => {
+            try {
+              const classDesc = await generateClassDescription(className, classes, newTrait, newPlanetName, newCountryName);
+              return [className, classDesc];
+            } catch (error) {
+              console.error(`Error generating description for ${className}:`, error);
+              return [className, `Failed to generate description: ${error instanceof Error ? error.message : String(error)}`];
+            }
+          })
+        );
+        setClassDescriptions(Object.fromEntries(descriptions));
+
+        calculateMajorMetrics();
+
+        isInitialized.current = true;
+      } catch (error) {
+        setError("Failed to initialize component. Please refresh the page.");
+        console.error("Error during initialization:", error);
+      }
+    };
+
+    initializeComponent();
   }, [calculateMajorMetrics, updateTraitDescription]);
 
+  // Effect to update data when key values change
   useEffect(() => {
-    console.log('Component mounted');
-    handleRandomize();
-  }, [handleRandomize]);
-
-  useEffect(() => {
-    console.log('Trait, PlanetName, or CountryName changed');
     if (trait && planetName && countryName) {
       updateData();
     }
   }, [trait, planetName, countryName, updateData]);
 
+  // Effect to recalculate metrics when socialClasses change
+  useEffect(() => {
+    if (socialClasses.length > 0) {
+      calculateMajorMetrics();
+    }
+  }, [socialClasses, calculateMajorMetrics]);
+
+  // Render component
   return (
     <TooltipProvider>
       <div className="flex flex-col items-center w-full min-h-screen p-4">
@@ -179,14 +254,21 @@ export function Start({ onStartSimulation }: { onStartSimulation: () => void }) 
               </Link>
             </TooltipTrigger>
             <TooltipContent className="max-w-[300px] p-2 whitespace-normal">
-              <p><strong>Total Population:</strong> {population}</p>
-              <p><strong>Planet Name:</strong> {planetName}</p>
-              <p><strong>Country Name:</strong> {countryName}</p>
-              <p><strong>Fertility Rate:</strong> {majorMetrics.fertilityRate}</p>
-              <p><strong>Education Access:</strong> {majorMetrics.educationAccess}</p>
-              <p><strong>Job Access:</strong> {majorMetrics.jobAccess}</p>
-              <p><strong>Wealth Distribution:</strong> {majorMetrics.wealthDistribution}</p>
-              <p><strong>Social Indicators:</strong> {majorMetrics.socialIndicators}</p>
+              <p><strong>Total Population:</strong> 37,60,03,824</p>
+              <p><strong>Planet Name:</strong> Zyronia</p>
+              <p><strong>Country Name:</strong> Cascadea</p>
+              <div>
+                <h3>Major Metrics:</h3>
+                <p>Fertility Rate: {majorMetrics.fertilityRate}</p>
+                <p>Education Access: {majorMetrics.educationAccess}</p>
+                <p>Job Access: {majorMetrics.jobAccess}</p>
+                <p>Wealth Distribution: {majorMetrics.wealthDistribution}</p>
+                <h4>Social Indicators:</h4>
+                <p>Life Expectancy: {majorMetrics.socialIndicators.lifeExpectancy}</p>
+                <p>Infant Mortality Rate: {majorMetrics.socialIndicators.infantMortalityRate}</p>
+                <p>Crime Rates:</p>
+                <p>Trust in Government: {majorMetrics.socialIndicators.trustInGovernment}</p>
+              </div>
               <p><strong>Innate Trait:</strong> {trait ? capitalizeFirstLetter(trait.trait) : 'Generating...'}</p>
             </TooltipContent>
           </Tooltip>

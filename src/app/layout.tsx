@@ -4,6 +4,8 @@ import { Inter } from 'next/font/google'
 import { cn } from '@/lib/utils'
 import '/src/styles/globals.css'
 import React, { ReactNode } from 'react';
+import { SimulationProvider } from '@/contexts/simulationcontext';
+import { Toaster } from "@/components/ui/toaster"
 
 interface Props {
   children: ReactNode;
@@ -32,7 +34,10 @@ export default function Layout({ children }: Props) {
           fontBody.variable
         )}
       >
-        {children}
+        <SimulationProvider>
+          <main>{children}</main>
+          <Toaster />
+        </SimulationProvider>
       </body>
     </html>
   )

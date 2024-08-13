@@ -1,4 +1,3 @@
-'use client';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from "next/link";
 import { Label } from "@/components/ui/label";
@@ -10,13 +9,18 @@ import { generatePlanetName, generateCountryName, generateSocialClasses, generat
 import { generateTraitDescription, generateClassDescription } from '../lib/descriptionGenerator';
 import { calculateFertilityRate, calculateHigherEducationAccess, calculateSkilledJobAccess, calculateWealthDistribution, calculateGDPPerCapita, calculateSocialIndicators, calculateAggregatedCrimeRate, calculatePopulationInPoverty } from '../config/initialParameters';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { useSimulationContext } from '@/contexts/simulationcontext';
 
 // Skeleton component for loading state
 export function SkeletonCard() {
   return (
     <div className="flex flex-col space-y-3 animate-pulse">
       <Skeleton className="h-[125px] w-[250px] rounded-xl" />
-      <div className="space-y-2">
+      <div className="space-y-6">
+        <Skeleton className="h-4 w-[250px]" />
+        <Skeleton className="h-4 w-[200px]" />
+        <Skeleton className="h-4 w-[250px]" />
+        <Skeleton className="h-4 w-[200px]" />
         <Skeleton className="h-4 w-[250px]" />
         <Skeleton className="h-4 w-[200px]" />
       </div>
@@ -25,14 +29,14 @@ export function SkeletonCard() {
 }
 
 export function Start({ onStartSimulation }: { onStartSimulation: () => void }) {
-  // Initialization and state management
+  const { setClasses } = useSimulationContext();
   const isInitialized = useRef(false);
   const [worldData, setWorldData] = useState({ planetName: '', countryName: '' });
   const [trait, setTrait] = useState<Trait | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [traitDescription, setTraitDescription] = useState('');
   const [classDescriptions, setClassDescriptions] = useState<Record<string, string>>({});
-  const [socialClasses, setSocialClasses] = useState<SocialClass[]>([]);
+  const [socialClasses, setSocialClasses] = useState<string[]>([]); // Assuming SocialClass is a string type
   const [population, setPopulation] = useState('');
   const [majorMetrics, setMajorMetrics] = useState({
     fertilityRate: 0,
@@ -45,14 +49,13 @@ export function Start({ onStartSimulation }: { onStartSimulation: () => void }) 
       lifeExpectancy: 0,
       infantMortalityRate: 0,
       crimeRates: '',
-      trustInGovernment: 0
-    }
+      trustInGovernment: 0,
+    },
   });
   const [loading, setLoading] = useState(true);
   const [showStats, setShowStats] = useState(false);
   const hoverCardRef = useRef<HTMLDivElement | null>(null);
 
-  // Utility functions
   const capitalizeFirstLetter = (string: string | undefined) => {
     if (!string) return '';
     return string.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
@@ -62,7 +65,6 @@ export function Start({ onStartSimulation }: { onStartSimulation: () => void }) 
     setWorldData({ planetName: newPlanetName, countryName: newCountryName });
   };
 
-  // Callback functions
   const updateTraitDescription = useCallback(async (newTrait: Trait, planetName: string, countryName: string) => {
     if (newTrait && planetName && countryName) {
       const description = await generateTraitDescription(newTrait, planetName, countryName);
@@ -72,22 +74,22 @@ export function Start({ onStartSimulation }: { onStartSimulation: () => void }) 
 
   const calculateMajorMetrics = useCallback(() => {
     if (socialClasses.length === 0) return;
-  
+
     const newMetrics = {
       fertilityRate: Number(calculateFertilityRate(socialClasses).toFixed(2)),
       educationAccess: Number((calculateHigherEducationAccess(socialClasses) * 100).toFixed(2)),
       jobAccess: Number((calculateSkilledJobAccess(socialClasses) * 100).toFixed(2)),
       wealthDistribution: Number((calculateWealthDistribution(socialClasses) * 100).toFixed(2)),
       populationInPoverty: Number(calculatePopulationInPoverty(socialClasses).toFixed(2)),
-      gdpPerCapita: Number(calculateGDPPerCapita(socialClasses).toFixed(2)), // Added GDP per capita metric
+      gdpPerCapita: Number(calculateGDPPerCapita(socialClasses).toFixed(2)), 
       socialIndicators: {
         lifeExpectancy: Number(calculateSocialIndicators(socialClasses).lifeExpectancy.toFixed(2)),
         infantMortalityRate: Number(calculateSocialIndicators(socialClasses).infantMortalityRate.toFixed(2)),
         crimeRates: calculateAggregatedCrimeRate(socialClasses),
-        trustInGovernment: Number((calculateSocialIndicators(socialClasses).trustInGovernment * 100).toFixed(2))
-      }
-    };  
-  
+        trustInGovernment: Number((calculateSocialIndicators(socialClasses).trustInGovernment * 100).toFixed(2)),
+      },
+    };
+
     setMajorMetrics(newMetrics);
     console.log('Updated metrics:', newMetrics);
   }, [socialClasses]);
@@ -103,6 +105,9 @@ export function Start({ onStartSimulation }: { onStartSimulation: () => void }) 
       const classes = await generateSocialClasses(newTrait, worldData.planetName, worldData.countryName);
       setSocialClasses(classes);
 
+      // Store the generated class names in the context
+      setClasses(classes);
+
       const descriptions = await Promise.all(
         classes.map(async (className) => {
           const classDesc = await generateClassDescription(className, classes, newTrait, worldData.planetName, worldData.countryName);
@@ -116,7 +121,7 @@ export function Start({ onStartSimulation }: { onStartSimulation: () => void }) 
     } finally {
       setLoading(false);
     }
-  }, [worldData, updateTraitDescription]);
+  }, [worldData, updateTraitDescription, setClasses]);
 
   const handleRandomize = useCallback(async () => {
     try {
@@ -135,6 +140,9 @@ export function Start({ onStartSimulation }: { onStartSimulation: () => void }) 
       const classes = await generateSocialClasses(newTrait, newPlanetName, newCountryName);
       setSocialClasses(classes);
 
+      // Store the generated class names in the context
+      setClasses(classes);
+
       const traitDesc = await generateTraitDescription(newTrait, newPlanetName, newCountryName);
       setTraitDescription(traitDesc);
 
@@ -151,7 +159,7 @@ export function Start({ onStartSimulation }: { onStartSimulation: () => void }) 
     } finally {
       setLoading(false);
     }
-  }, [updateTraitDescription]);
+  }, [updateTraitDescription, setClasses]);
 
   const handleCalculateStats = useCallback(() => {
     calculateMajorMetrics();
@@ -164,7 +172,6 @@ export function Start({ onStartSimulation }: { onStartSimulation: () => void }) 
     }
   }, []);
 
-  // Effects
   useEffect(() => {
     const initialize = async () => {
       await handleRandomize();
@@ -189,7 +196,6 @@ export function Start({ onStartSimulation }: { onStartSimulation: () => void }) 
     };
   }, [showStats, handleOutsideClick]);
 
-  // Render
   return (
     <TooltipProvider>
       <div className="flex flex-col items-center w-full min-h-screen p-4">
@@ -218,82 +224,79 @@ export function Start({ onStartSimulation }: { onStartSimulation: () => void }) 
                   </TooltipContent>
                 </Tooltip>
                 <Tooltip>
-                <TooltipTrigger asChild>
-                  <p>Education Access: {majorMetrics.educationAccess}% <InfoCircledIcon className="inline ml-1 h-4 w-4 cursor-help" /></p>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Percentage of population with access to primary, secondary, and tertiary education, weighted more heavily towards higher education.</p>
-                </TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <p>Job Access: {majorMetrics.jobAccess}% <InfoCircledIcon className="inline ml-1 h-4 w-4 cursor-help" /></p>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Percentage of working-age population with access to skilled employment opportunities, influenced by tertiary education levels.</p>
-                </TooltipContent>
-              </Tooltip>
+                  <TooltipTrigger asChild>
+                    <p>Education Access: {majorMetrics.educationAccess}% <InfoCircledIcon className="inline ml-1 h-4 w-4 cursor-help" /></p>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Percentage of population with access to primary, secondary, and tertiary education, weighted more heavily towards higher education.</p>
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <p>Job Access: {majorMetrics.jobAccess}% <InfoCircledIcon className="inline ml-1 h-4 w-4 cursor-help" /></p>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Percentage of working-age population with access to skilled employment opportunities, influenced by tertiary education levels.</p>
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <p>Wealth Distribution: {majorMetrics.wealthDistribution}% <InfoCircledIcon className="inline ml-1 h-4 w-4 cursor-help" /></p>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Percentage of total wealth owned by the middle class, indicating the distribution of wealth across society.</p>
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <p>Population in Poverty: {majorMetrics.populationInPoverty}% <InfoCircledIcon className="inline ml-1 h-4 w-4 cursor-help" /></p>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Percentage of total population living below the poverty line.</p>
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <p>GDP per Capita: {majorMetrics.gdpPerCapita} <InfoCircledIcon className="inline ml-1 h-4 w-4 cursor-help" /></p>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Average economic output per person, adjusted for population distribution across social classes.</p>
+                  </TooltipContent>
+                </Tooltip>
 
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <p>Wealth Distribution: {majorMetrics.wealthDistribution}% <InfoCircledIcon className="inline ml-1 h-4 w-4 cursor-help" /></p>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Percentage of total wealth owned by the middle class, indicating the distribution of wealth across society.</p>
-                </TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <p>Population in Poverty: {majorMetrics.populationInPoverty}% <InfoCircledIcon className="inline ml-1 h-4 w-4 cursor-help" /></p>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Percentage of total population living below the poverty line.</p>
-                </TooltipContent>
-              </Tooltip>
-
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <p>GDP per Capita: {majorMetrics.gdpPerCapita} <InfoCircledIcon className="inline ml-1 h-4 w-4 cursor-help" /></p>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Average economic output per person, adjusted for population distribution across social classes.</p>
-                </TooltipContent>
-              </Tooltip>
-
-              <h4>Social Indicators:</h4>
-
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <p>Life Expectancy: {majorMetrics.socialIndicators.lifeExpectancy} <InfoCircledIcon className="inline ml-1 h-4 w-4 cursor-help" /></p>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Average number of years a person is expected to live, based on current mortality rates.</p>
-                </TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <p>Infant Mortality Rate: {majorMetrics.socialIndicators.infantMortalityRate} <InfoCircledIcon className="inline ml-1 h-4 w-4 cursor-help" /></p>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Number of deaths per 1,000 live births before reaching one year of age.</p>
-                </TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <p>Crime Rates: {majorMetrics.socialIndicators.crimeRates} <InfoCircledIcon className="inline ml-1 h-4 w-4 cursor-help" /></p>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Overall level of criminal activity in society, categorized by severity.</p>
-                </TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <p>Trust in Government: {majorMetrics.socialIndicators.trustInGovernment}% <InfoCircledIcon className="inline ml-1 h-4 w-4 cursor-help" /></p>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Percentage of population that trusts the government and public institutions.</p>
-                </TooltipContent>
-              </Tooltip>
+                <h4>Social Indicators:</h4>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <p>Life Expectancy: {majorMetrics.socialIndicators.lifeExpectancy} <InfoCircledIcon className="inline ml-1 h-4 w-4 cursor-help" /></p>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Average number of years a person is expected to live, based on current mortality rates.</p>
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <p>Infant Mortality Rate: {majorMetrics.socialIndicators.infantMortalityRate} <InfoCircledIcon className="inline ml-1 h-4 w-4 cursor-help" /></p>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Number of deaths per 1,000 live births before reaching one year of age.</p>
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <p>Crime Rates: {majorMetrics.socialIndicators.crimeRates} <InfoCircledIcon className="inline ml-1 h-4 w-4 cursor-help" /></p>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Overall level of criminal activity in society, categorized by severity.</p>
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <p>Trust in Government: {majorMetrics.socialIndicators.trustInGovernment}% <InfoCircledIcon className="inline ml-1 h-4 w-4 cursor-help" /></p>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Percentage of population that trusts the government and public institutions.</p>
+                  </TooltipContent>
+                </Tooltip>
               </div>
               <p><strong>Innate Trait:</strong> {trait ? capitalizeFirstLetter(trait.trait) : 'Generating...'}</p>
             </HoverCardContent>
@@ -332,7 +335,7 @@ export function Start({ onStartSimulation }: { onStartSimulation: () => void }) 
                     </TooltipTrigger>
                     <TooltipContent>
                       <p>An innate trait is a natural characteristic that affects the entire population, influencing their behavior and society.</p>
-                      </TooltipContent>
+                    </TooltipContent>
                   </Tooltip>
                 </h2>
                 <div>
@@ -386,4 +389,3 @@ export function Start({ onStartSimulation }: { onStartSimulation: () => void }) 
     </TooltipProvider>
   );
 }
-                

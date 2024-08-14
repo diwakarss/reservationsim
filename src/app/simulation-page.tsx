@@ -1,20 +1,23 @@
 'use client';
 import { useState } from 'react';
 import { Start } from '../components/start';
-import { Simulator } from '../components/simulator';
+import { Simulator, SimulatorProps } from '../components/simulator';
+
 export function SimulationPage() {
   const [isSimulationStarted, setIsSimulationStarted] = useState(false);
+  const [simulationData, setSimulationData] = useState<SimulatorProps['initialData'] | null>(null);
 
-  const handleStartSimulation = () => {
+  const handleStartSimulation = (data: SimulatorProps['initialData']) => {
+    setSimulationData(data);
     setIsSimulationStarted(true);
   };
 
   return (
     <>
-      {!isSimulationStarted ? (
+      {!simulationData ? (
         <Start onStartSimulation={handleStartSimulation} />
       ) : (
-        <Simulator />
+        <Simulator initialData={simulationData} />
       )}
     </>
   );

@@ -80,13 +80,107 @@ export const initialParameters = {
     class4: 0.60, // 60% of class 4 in poverty
     class5: 0.85, // 85% of class 5 in poverty
   },
+  deathRate: {
+    class1: 0.005,
+    class2: 0.007,
+    class3: 0.010,
+    class4: 0.015,
+    class5: 0.020,
+  },
+  migrationEffect: {
+    class1: 0.002,
+    class2: 0.001,
+    class3: 0.000,
+    class4: -0.003,
+    class5: -0.005,
+  },
+  economicGrowth: {
+    class1: 0.04,
+    class2: 0.03,
+    class3: 0.02,
+    class4: 0.01,
+    class5: 0.005,
+  },
+  fertilityAdjustment: {
+    class1: 0.01,
+    class2: 0.02,
+    class3: 0.03,
+    class4: 0.04,
+    class5: 0.05,
+  },
+  reservationFertilityImpact: {
+    class1: -0.005,
+    class2: 0.005,
+    class3: 0.010,
+    class4: 0.015,
+    class5: 0.020,
+  },
+  dropoutRate: {
+    class1: 0.01,
+    class2: 0.02,
+    class3: 0.05,
+    class4: 0.10,
+    class5: 0.20,
+  },
+  educationInvestmentEffectiveness: {
+    class1: 0.08,
+    class2: 0.06,
+    class3: 0.04,
+    class4: 0.02,
+    class5: 0.01,
+  },
+  savingsRate: {
+    class1: 0.15,
+    class2: 0.10,
+    class3: 0.05,
+    class4: 0.02,
+    class5: 0.01,
+  },
+  consumptionRate: {
+    class1: 0.05,
+    class2: 0.07,
+    class3: 0.10,
+    class4: 0.15,
+    class5: 0.20,
+  },
+  reservationEffect: {
+    class1: 0.05,
+    class2: 0.04,
+    class3: 0.03,
+    class4: 0.02,
+    class5: 0.01,
+  },
+  skillsMismatchFactor: {
+    class1: 0.05,
+    class2: 0.10,
+    class3: 0.15,
+    class4: 0.20,
+    class5: 0.25,
+  },
+  wealthRedistributionEffect: {
+    class1: 0.02,
+    class2: 0.015,
+    class3: 0.010,
+    class4: 0.005,
+    class5: 0.001,
+  },
+  socialUnrestFactor: {
+    class1: 0.05,
+    class2: 0.10,
+    class3: 0.15,
+    class4: 0.20,
+    class5: 0.25,
+  },
 };
 
 // Adjusted Calculations
+
 export function calculateFertilityRate(socialClasses: string[]): number {
   return socialClasses.reduce((acc, _, index) => {
     const classKey = `class${index + 1}` as keyof typeof initialParameters.fertilityRateDistribution;
-    return acc + (initialParameters.fertilityRateDistribution[classKey] || 2.5);
+    const adjustment = initialParameters.fertilityAdjustment[classKey];
+    const reservationImpact = initialParameters.reservationFertilityImpact[classKey];
+    return acc + (initialParameters.fertilityRateDistribution[classKey] * (1 - adjustment) + reservationImpact);
   }, 0) / socialClasses.length;
 }
 
@@ -96,12 +190,11 @@ export function calculateHigherEducationAccess(socialClasses: string[]): number 
   socialClasses.forEach((_, index) => {
     const classKey = `class${index + 1}` as keyof typeof initialParameters.higherEducationAccess;
     const classAccess = initialParameters.higherEducationAccess[classKey];
-    if (classAccess) {
-      // Focus solely on tertiary education access
-      totalAccess += classAccess.tertiary;
-    } else {
-      totalAccess += 0.02; // Default fallback value, very low access to higher education
-    }
+    const dropoutRate = initialParameters.dropoutRate[classKey];
+    const investmentEffectiveness = initialParameters.educationInvestmentEffectiveness[classKey];
+    const reservationEffect = initialParameters.reservationEffect[classKey];
+
+    totalAccess += (classAccess.tertiary + (investmentEffectiveness - dropoutRate) - reservationEffect);
   });
 
   return totalAccess / socialClasses.length;
@@ -112,15 +205,14 @@ export function calculateSkilledJobAccess(socialClasses: string[]): number {
 
   socialClasses.forEach((_, index) => {
     const classKey = `class${index + 1}` as keyof typeof initialParameters.skilledJobAccess;
-    const baseAccess = initialParameters.skilledJobAccess[classKey] || 0.05; // Lowered fallback value
-    const educationImpact = initialParameters.higherEducationAccess[classKey].tertiary * 0.4; // Stronger impact factor for tertiary education access
-    const povertyImpact = (1 - initialParameters.povertyIndicator[classKey]) * 0.4; // New impact factor for poverty levels
-
-    // Combine base job access with the impacts of education and poverty
-    totalJobAccess += baseAccess * educationImpact * povertyImpact;
+    const baseAccess = initialParameters.skilledJobAccess[classKey] || 0.05; 
+    const educationImpact = initialParameters.higherEducationAccess[classKey].tertiary * 0.4; 
+    const povertyImpact = (1 - initialParameters.povertyIndicator[classKey]) * 0.4;
+    const skillsMismatch = initialParameters.skillsMismatchFactor[classKey];
+    
+    totalJobAccess += baseAccess * educationImpact * povertyImpact * (1 - skillsMismatch);
   });
 
-  // Ensure average job access does not exceed 100%
   return Math.min(totalJobAccess / socialClasses.length, 1.0);
 }
 
@@ -140,7 +232,9 @@ export function calculateGDPPerCapita(socialClasses: string[]): number {
     const gdp = initialParameters.gdpPerCapita[classKey];
     const populationShare = initialParameters.populationDistribution[populationKey];
 
-    totalGDP += gdp * populationShare;
+    const wealthRedistribution = initialParameters.wealthRedistributionEffect[classKey];
+    
+    totalGDP += (gdp + wealthRedistribution) * populationShare;
     totalPopulationShare += populationShare;
   });
 
@@ -148,14 +242,18 @@ export function calculateGDPPerCapita(socialClasses: string[]): number {
 }
 
 export function calculateSocialIndicators(socialClasses: string[]): any {
-  // Adjusting life expectancy based on more realistic backward society conditions
   const lifeExpectancy = socialClasses.reduce((acc, _, index) => {
     const classKey = `class${index + 1}` as keyof typeof initialParameters.socialIndicators.lifeExpectancy;
     return acc + initialParameters.socialIndicators.lifeExpectancy[classKey];
   }, 0) / socialClasses.length;
 
+  const socialUnrest = socialClasses.reduce((acc, _, index) => {
+    const classKey = `class${index + 1}` as keyof typeof initialParameters.socialUnrestFactor;
+    return acc + initialParameters.socialUnrestFactor[classKey];
+  }, 0) / socialClasses.length;
+
   return {
-    lifeExpectancy: lifeExpectancy * 0.9, // Reduced to reflect the backward nature of the society
+    lifeExpectancy: lifeExpectancy * (1 - socialUnrest), 
     infantMortalityRate: (initialParameters.socialIndicators.infantMortalityRate.class1 + initialParameters.socialIndicators.infantMortalityRate.class5) / 2,
     crimeRates: socialClasses.map((_, index) => {
       const classKey = `class${index + 1}` as keyof typeof initialParameters.socialIndicators.crimeRates;
@@ -203,5 +301,147 @@ export function calculatePopulationInPoverty(socialClasses: string[]): number {
     const populationShare = initialParameters.populationDistribution[classKey];
     const povertyShare = initialParameters.povertyIndicator[classKey];
     return totalPoverty + (populationShare * povertyShare);
-  }, 0) * 100; // Multiply by 100 to convert to percentage
+  }, 0) * 100;
 }
+
+export function calculateSkillsMismatch(socialClasses: string[]): number {
+  return socialClasses.reduce((acc, _, index) => {
+    const classKey = `class${index + 1}` as keyof typeof initialParameters.skillsMismatchFactor;
+    return acc + initialParameters.skillsMismatchFactor[classKey];
+  }, 0) / socialClasses.length;
+}
+
+export function calculateWealthRedistribution(socialClasses: string[]): number {
+  return socialClasses.reduce((acc, _, index) => {
+    const classKey = `class${index + 1}` as keyof typeof initialParameters.wealthRedistributionEffect;
+    return acc + initialParameters.wealthRedistributionEffect[classKey];
+  }, 0) / socialClasses.length;
+}
+
+export function calculateSocialUnrest(socialClasses: string[]): number {
+  return socialClasses.reduce((acc, _, index) => {
+    const classKey = `class${index + 1}` as keyof typeof initialParameters.socialUnrestFactor;
+    return acc + initialParameters.socialUnrestFactor[classKey];
+  }, 0) / socialClasses.length;
+}
+
+export function calculatePopulationOverTime(
+  socialClasses: SocialClass[],
+  year: number,
+  reservations: Record<string, number>
+): any {
+  return socialClasses.map((className: SocialClass) => {
+    const population = initialParameters.populationDistribution[className];
+    const birthRate = initialParameters.fertilityRateDistribution[className];
+    const deathRate = initialParameters.deathRate[className];
+    const migrationEffect = initialParameters.migrationEffect[className];
+    const reservationEffect = reservations[className] || 0;
+
+    const populationAtYear = population + (population * birthRate) - (population * deathRate) + migrationEffect - (population * reservationEffect);
+    return {
+      name: className,
+      value: Math.max(0, populationAtYear),  // Ensuring population doesn't drop below zero
+    };
+  });
+}
+
+export function calculateFertilityRateOverTime(
+  socialClasses: SocialClass[],
+  year: number,
+  reservations: Record<string, number>
+): any {
+  return socialClasses.map((className: SocialClass) => {
+    const baseFertility = initialParameters.fertilityRateDistribution[className];
+    const adjustmentFactor = initialParameters.fertilityAdjustment[className];
+    const reservationImpact = initialParameters.reservationFertilityImpact[className];
+    
+    const fertilityRateAtYear = baseFertility * (1 - adjustmentFactor) + reservationImpact;
+    return {
+      name: className,
+      value: Math.max(0, fertilityRateAtYear),  // Prevent negative fertility rates
+    };
+  });
+}
+
+export function calculateEducationAccessOverTime(
+  socialClasses: SocialClass[],
+  year: number,
+  reservations: Record<string, number>
+): any {
+  return socialClasses.map((className: SocialClass) => {
+    const baseEducationAccess = initialParameters.higherEducationAccess[className].tertiary;
+    const dropoutRate = initialParameters.dropoutRate[className];
+    const investmentEffectiveness = initialParameters.educationInvestmentEffectiveness[className];
+    const reservationEffect = reservations[className] || 0;
+
+    const educationAccessAtYear = baseEducationAccess + (investmentEffectiveness - dropoutRate) - reservationEffect;
+    return {
+      name: className,
+      value: Math.max(0, Math.min(1, educationAccessAtYear)),  // Ensures education access stays within 0-1
+    };
+  });
+}
+
+export function calculateJobAccessOverTime(
+  socialClasses: SocialClass[],
+  year: number,
+  reservations: Record<string, number>
+): any {
+  return socialClasses.map((className: SocialClass) => {
+    const baseJobAccess = initialParameters.skilledJobAccess[className];
+    const economicGrowth = initialParameters.economicGrowth[className];
+    const unemploymentRate = 1 - baseJobAccess;  // Assuming unemployment rate is inverse of job access
+    const reservationEffect = reservations[className] || 0;
+    const skillsMismatch = initialParameters.skillsMismatchFactor[className];
+    
+    const jobAccessAtYear = baseJobAccess + (economicGrowth - unemploymentRate) - reservationEffect * (1 - skillsMismatch);
+    return {
+      name: className,
+      value: Math.max(0, Math.min(1, jobAccessAtYear)),  // Ensures job access stays between 0 and 1
+    };
+  });
+}
+
+export function calculateWealthDistributionOverTime(
+  socialClasses: SocialClass[],
+  year: number,
+  reservations: Record<string, number>
+): any {
+  return socialClasses.map((className: SocialClass) => {
+    const baseWealth = initialParameters.wealthDistribution[className];
+    const savingsRate = initialParameters.savingsRate[className];
+    const consumptionRate = initialParameters.consumptionRate[className];
+    const reservationEffect = reservations[className] || 0;
+    const wealthRedistribution = initialParameters.wealthRedistributionEffect[className];
+
+    const wealthAtYear = baseWealth + (savingsRate - consumptionRate) + wealthRedistribution + reservationEffect;
+    return {
+      name: className,
+      value: Math.max(0, wealthAtYear),  // Prevent negative wealth values
+    };
+  });
+}
+
+export function calculateSocialIndicatorsOverTime(
+  socialClasses: SocialClass[],
+  year: number,
+  reservations: Record<string, number>
+): any {
+  return socialClasses.map((className: SocialClass) => {
+    const baseLifeExpectancy = initialParameters.socialIndicators.lifeExpectancy[className];
+    const baseInfantMortalityRate = initialParameters.socialIndicators.infantMortalityRate[className];
+    const trustInGovernment = initialParameters.socialIndicators.trustInGovernment[className];
+    const crimeRate = initialParameters.socialIndicators.crimeRates[className];
+    const reservationEffect = reservations[className] || 0;
+    const socialUnrest = initialParameters.socialUnrestFactor[className];
+
+    return {
+      name: className,
+      lifeExpectancy: Math.max(0, baseLifeExpectancy * (1 - reservationEffect) * (1 - socialUnrest)),
+      infantMortalityRate: baseInfantMortalityRate * (1 + reservationEffect),
+      crimeRates: crimeRate,
+      trustInGovernment: Math.max(0, trustInGovernment * (1 - reservationEffect)),
+    };
+  });
+}
+

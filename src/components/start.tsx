@@ -11,6 +11,7 @@ import { calculateFertilityRate, calculateHigherEducationAccess, calculateSkille
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSimulationContext } from '@/contexts/simulationcontext';
 
+
 // Skeleton component for loading state
 export function SkeletonCard() {
   return (
@@ -19,24 +20,20 @@ export function SkeletonCard() {
       <div className="space-y-6">
         <Skeleton className="h-4 w-[250px]" />
         <Skeleton className="h-4 w-[200px]" />
-        <Skeleton className="h-4 w-[250px]" />
-        <Skeleton className="h-4 w-[200px]" />
-        <Skeleton className="h-4 w-[250px]" />
-        <Skeleton className="h-4 w-[200px]" />
       </div>
     </div>
   );
 }
 
-export function Start({ onStartSimulation }: { onStartSimulation: () => void }) {
-  const { setClasses } = useSimulationContext();
+export function Start({ onStartSimulation }: { onStartSimulation: (data: any) => void }) {
+  const { setClasses, setMetrics } = useSimulationContext();
   const isInitialized = useRef(false);
   const [worldData, setWorldData] = useState({ planetName: '', countryName: '' });
   const [trait, setTrait] = useState<Trait | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [traitDescription, setTraitDescription] = useState('');
   const [classDescriptions, setClassDescriptions] = useState<Record<string, string>>({});
-  const [socialClasses, setSocialClasses] = useState<string[]>([]); // Assuming SocialClass is a string type
+  const [socialClasses, setSocialClasses] = useState<string[]>([]);
   const [population, setPopulation] = useState('');
   const [majorMetrics, setMajorMetrics] = useState({
     fertilityRate: 0,
@@ -52,6 +49,7 @@ export function Start({ onStartSimulation }: { onStartSimulation: () => void }) 
       trustInGovernment: 0,
     },
   });
+
   const [loading, setLoading] = useState(true);
   const [showStats, setShowStats] = useState(false);
   const hoverCardRef = useRef<HTMLDivElement | null>(null);
@@ -91,8 +89,9 @@ export function Start({ onStartSimulation }: { onStartSimulation: () => void }) 
     };
 
     setMajorMetrics(newMetrics);
+    setMetrics(newMetrics);
     console.log('Updated metrics:', newMetrics);
-  }, [socialClasses]);
+  }, [socialClasses, setMetrics]);
 
   const handleGenerateTrait = useCallback(async () => {
     try {
@@ -195,6 +194,20 @@ export function Start({ onStartSimulation }: { onStartSimulation: () => void }) 
       document.removeEventListener('click', handleOutsideClick);
     };
   }, [showStats, handleOutsideClick]);
+
+  useEffect(() => {
+    calculateMajorMetrics();
+  }, [calculateMajorMetrics]);
+
+  const handleStartSimulation = () => {
+    onStartSimulation({
+      worldData,
+      trait,
+      socialClasses,
+      population,
+      majorMetrics
+    });
+  };
 
   return (
     <TooltipProvider>
@@ -307,6 +320,10 @@ export function Start({ onStartSimulation }: { onStartSimulation: () => void }) 
             <div className="flex space-x-4">
               <SkeletonCard />
               <SkeletonCard />
+              <SkeletonCard />
+              <SkeletonCard />
+              <SkeletonCard />
+              <SkeletonCard />
             </div>
           ) : (
             <>
@@ -381,7 +398,7 @@ export function Start({ onStartSimulation }: { onStartSimulation: () => void }) 
                   ))}
                 </div>
               </section>
-              <Button className="mt-8" onClick={onStartSimulation}>Start Simulation</Button>
+              <Button className="mt-8" onClick={handleStartSimulation}>Start Simulation</Button>
             </>
           )}
         </main>

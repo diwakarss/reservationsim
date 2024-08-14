@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -11,52 +11,145 @@ import { useToast } from "@/components/ui/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Drawer, DrawerContent, DrawerTrigger, DrawerClose } from "@/components/ui/drawer";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
-import { Play, Pause, SkipBack, SkipForward, Rewind, FastForward } from "lucide-react";
+import { Play, Pause, SkipForward, Rewind, FastForward, SkipBack, StepBack } from "lucide-react";
 import * as RechartsPrimitive from "recharts";
 import { ChartContainer, ChartTooltip, ChartLegend } from "@/components/ui/chart";
 import { useSimulationContext } from '@/contexts/simulationcontext';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
-export function Simulator() {
+export interface SimulatorProps {
+  initialData: {
+    // Define the structure of your initialData here
+    worldData: { planetName: string; countryName: string };
+    trait: { trait: string } | null;
+    socialClasses: string[];
+    population: string;
+    majorMetrics: {
+      fertilityRate: 0,
+    educationAccess: 0,
+    jobAccess: 0,
+    wealthDistribution: 0,
+    populationInPoverty: 0,
+    gdpPerCapita: 0,
+    socialIndicators: {
+      lifeExpectancy: 0,
+      infantMortalityRate: 0,
+      crimeRates: '',
+      trustInGovernment: 0,
+    },
+    };
+  };
+}
+
+export function Simulator({ initialData }: SimulatorProps) {
   const { classes } = useSimulationContext();
-  const [year, setYear] = useState(2022);
+  const startYear = new Date().getFullYear();
+  const [currentYear, setCurrentYear] = useState(startYear);
   const [isPlaying, setIsPlaying] = useState(false);
+  const maxYear = startYear + 500;
   const [totalReservationCap, setTotalReservationCap] = useState(0);
   const [classReservations, setClassReservations] = useState<Record<string, number>>({});
   const [remainingGeneralQuota, setRemainingGeneralQuota] = useState(100);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [savedSettings, setSavedSettings] = useState({
+  const [savedSettings, setSavedSettings] = useState<{
+    totalReservationCap: number;
+    classReservations: Record<string, number>;
+    creamyLayerSettings: Record<string, boolean>;
+    ewsSettings: {
+      percentage: number;
+      allClassesEligible: boolean;
+    };
+  }>({
     totalReservationCap: 0,
-    classReservations: {} as Record<string, number>,
+    classReservations: {},
+    creamyLayerSettings: {},
+    ewsSettings: {
+      percentage: 0,
+      allClassesEligible: false
+    }
   });
+  const [creamyLayerSettings, setCreamyLayerSettings] = useState<Record<string, boolean>>({});
+  const [ewsSettings, setEwsSettings] = useState({
+    percentage: 0,
+    allClassesEligible: false
+  }); 
   const { toast } = useToast(); 
 
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  const startSimulation = () => {
+    setIsPlaying(true);
+    intervalRef.current = setInterval(() => {
+      setCurrentYear(prev => Math.min(prev + 5, maxYear));
+    }, 1000); // Update every second
+  };
+
+  const pauseSimulation = () => {
+    setIsPlaying(false);
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+    }
+  };
+
+  const rewindToStart = () => {
+    setCurrentYear(startYear);
+  };
+
+  const rewindYear = () => {
+    setCurrentYear(prev => Math.max(startYear, prev - 20));
+  };
+
+  const skipYear = () => {
+    setCurrentYear(prev => Math.min(maxYear, prev + 20));
+  };
 
   useEffect(() => {
     const totalReservation = Object.values(classReservations).reduce((sum, val) => sum + val, 0);
-    setRemainingGeneralQuota(Math.max(100 - totalReservation, 0));
-  }, [classReservations]);
+    const effectiveCap = totalReservationCap || 100;
+    setRemainingGeneralQuota(Math.max(effectiveCap - totalReservation, 0));
+  }, [classReservations, totalReservationCap]);
 
-  const handleReservationChange = (className: string, value: number) => {
-    if (value >= 0 && value <= 100) {
-      const totalReservation = Object.values(classReservations).reduce((sum, val) => sum + val, 0);
-      const newTotal = totalReservation - (classReservations[className] || 0) + value;
-
-      if (newTotal <= totalReservationCap) {
-        setClassReservations({
-          ...classReservations,
-          [className]: value,
-        });
-        setErrors({
-          ...errors,
-          [className]: '', // Clear the error when the input is valid
-        });
-      } else {
-        const maxAllowed = totalReservationCap - (totalReservation - (classReservations[className] || 0));
-        setErrors({
-          ...errors,
-          [className]: `The total reservation cap is ${totalReservationCap}%. You can only allocate up to ${Math.max(maxAllowed, 0)}% to this class.`,
-        });
+  useEffect(() => {
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
       }
+    };
+  }, []);
+
+  const handleReservationChange = (className: string, value: string) => {
+    // Allow empty string for backspace/delete operations
+    if (value === '') {
+      setClassReservations({ ...classReservations, [className]: 0 });
+      setErrors({ ...errors, [className]: '' });
+      return;
+    }
+
+    const numValue = parseFloat(value);
+    if (isNaN(numValue)) {
+      setErrors({ ...errors, [className]: 'Please enter a valid number' });
+      return;
+    }
+
+    if (numValue < 0 || numValue > 100) {
+      setErrors({ ...errors, [className]: 'Reservation must be between 0% and 100%' });
+      return;
+    }
+
+    const newReservations = { ...classReservations, [className]: numValue };
+    const totalReservation = Object.values(newReservations).reduce((sum, val) => sum + val, 0);
+
+    const effectiveCap = totalReservationCap || 100; // Use 100 if no cap is specified
+
+    if (totalReservation <= effectiveCap) {
+      setClassReservations(newReservations);
+      setErrors({ ...errors, [className]: '' });
+    } else {
+      const availablePercentage = effectiveCap - (totalReservation - numValue);
+      setErrors({
+        ...errors,
+        [className]: `Exceeds ${totalReservationCap ? 'cap' : 'total'}. Available: ${availablePercentage.toFixed(2)}%`
+      });
     }
   };  
   
@@ -73,24 +166,151 @@ export function Simulator() {
     }
   };
 
+  const handleCreamyLayerChange = (className: string, value: boolean) => {
+    setCreamyLayerSettings({ ...creamyLayerSettings, [className]: value });
+  };
+
+  const handleEWSChange = (value: string) => {
+    // Allow empty string for backspace/delete operations
+    if (value === '') {
+      setEwsSettings(prev => ({ ...prev, percentage: 0 }));
+      setErrors(prevErrors => {
+        const { ews, ...rest } = prevErrors;
+        return rest;
+      });
+      return;
+    }
+
+    const numValue = parseFloat(value);
+    if (isNaN(numValue)) {
+      setErrors(prevErrors => ({
+        ...prevErrors,
+        ews: 'EWS reservation must be a number'
+      }));
+      return;
+    }
+
+    if (numValue < 0) {
+      setErrors(prevErrors => ({
+        ...prevErrors,
+        ews: 'EWS reservation must be a non-negative number'
+      }));
+      return;
+    }
+
+    if (numValue > remainingGeneralQuota) {
+      setErrors(prevErrors => ({
+        ...prevErrors,
+        ews: `EWS reservation cannot exceed remaining general quota (${remainingGeneralQuota}%)`
+      }));
+      return;
+    }
+
+    setEwsSettings(prev => ({
+      ...prev,
+      percentage: numValue
+    }));
+    setErrors(prevErrors => {
+      const { ews, ...rest } = prevErrors;
+      return rest;
+    });
+  };
+
+  const [isSettingsValid, setIsSettingsValid] = useState(true);
+
+  const validateSettings = () => {
+    const totalReservation = Object.values(classReservations).reduce((sum, val) => sum + val, 0);
+    const effectiveCap = totalReservationCap || 100; // Use 100 if no cap is specified
+    
+    if (totalReservation > effectiveCap) {
+      setErrors(prevErrors => ({
+        ...prevErrors,
+        totalCap: `Total reservations (${totalReservation}%) exceed the cap (${effectiveCap}%). Please adjust class reservations.`
+      }));
+      setIsSettingsValid(false);
+    } else {
+      setErrors({});
+      setIsSettingsValid(true);
+    }
+
+    if (ewsSettings.percentage > remainingGeneralQuota) {
+      setErrors(prevErrors => ({
+        ...prevErrors,
+        ews: `EWS reservation (${ewsSettings.percentage}%) exceeds remaining general quota (${remainingGeneralQuota}%)`
+      }));
+      setIsSettingsValid(false);
+    } else {
+      setIsSettingsValid(true);
+    }
+  };
+
+  useEffect(() => {
+    validateSettings();
+  }, [classReservations, totalReservationCap, ewsSettings]);
+
   const handleApplySettings = () => {
-    // Save the settings
+    if (Object.keys(errors).length > 0 || !isSettingsValid) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Please correct the errors before applying settings.",
+      });
+      return;
+    }
+
+    // Save the settings only if there are no errors
     setSavedSettings({
       totalReservationCap,
       classReservations,
+      creamyLayerSettings,
+      ewsSettings
     });
 
-   toast({
+    toast({
       description: "Your settings have been saved successfully.",
+    });
+  };
+
+  const handleCloseDrawer = () => {
+    if (Object.keys(errors).length > 0) {
+      // Reset to last saved settings
+      setTotalReservationCap(savedSettings.totalReservationCap);
+      setClassReservations(savedSettings.classReservations);
+      setCreamyLayerSettings(savedSettings.creamyLayerSettings);
+      setEwsSettings(savedSettings.ewsSettings);
+      setErrors({});
+    }
+  };
+
+  const saveSettings = () => {
+    setSavedSettings({
+      totalReservationCap,
+      classReservations,
+      creamyLayerSettings,
+      ewsSettings
+    });
+    toast({
+      title: "Settings Saved",
+      description: "Your reservation settings have been saved.",
+    });
+  };
+
+  const loadSettings = () => {
+    setTotalReservationCap(savedSettings.totalReservationCap);
+    setClassReservations(savedSettings.classReservations);
+    setCreamyLayerSettings(savedSettings.creamyLayerSettings);
+    setEwsSettings(savedSettings.ewsSettings);
+    toast({
+      title: "Settings Loaded",
+      description: "Your saved reservation settings have been applied.",
     });
   };
 
   useEffect(() => {
     if (Object.keys(savedSettings.classReservations).length > 0) {
-      setTotalReservationCap(savedSettings.totalReservationCap);
-      setClassReservations(savedSettings.classReservations);
+      loadSettings();
     }
-  }, [savedSettings]);
+  }, []);
   
 
   // Ensure that sampleData and chartConfig are dynamically mapped based on the classes
@@ -108,6 +328,34 @@ export function Simulator() {
   // Reverse the classes array before mapping
   const reversedClasses = [...classes].reverse();
 
+  const validateReservations = (cap: number) => {
+    const totalReservation = Object.values(classReservations).reduce((sum, val) => sum + val, 0);
+    if (totalReservation > cap) {
+      setErrors(prevErrors => ({
+        ...prevErrors,
+        totalCap: `Total reservations (${totalReservation}%) exceed the new cap (${cap}%). Please adjust class reservations.`
+      }));
+    } else {
+      setErrors(prevErrors => {
+        const { totalCap, ...rest } = prevErrors;
+        return rest;
+      });
+    }
+  };
+
+  const handleTotalCapChange = (value: string) => {
+    const numValue = parseFloat(value);
+    if (isNaN(numValue) || numValue < 0 || numValue > 100) {
+      setErrors(prevErrors => ({
+        ...prevErrors,
+        totalCap: 'Total cap must be a number between 0 and 100'
+      }));
+      return;
+    }
+    setTotalReservationCap(numValue);
+    validateReservations(numValue);
+  };
+
   return (
     <div className="flex flex-col items-center w-full min-h-screen p-4">
       <header className="flex items-center justify-between w-full p-4 border-b">
@@ -123,15 +371,19 @@ export function Simulator() {
                   <div key={group} className="space-y-2">
                     <Label>{group}</Label>
                     <Input
-                      type="number"
+                      type="text" // Changed from "number" to "text"
                       placeholder="0%"
                       value={classReservations[group] || ''}
-                      onChange={(e) => handleReservationChange(group, parseFloat(e.target.value) || 0)}
+                      onChange={(e) => handleReservationChange(group, e.target.value)}
                       onBlur={() => handleBlur(group)} // Clear error on blur
                     />
                     {errors[group] && <p className="text-red-500 text-sm">{errors[group]}</p>}
                     <div className="flex items-center space-x-2">
-                      <Switch id={`creamy-layer-${group}`} />
+                      <Switch
+                        id={`creamy-layer-${group}`}
+                        checked={creamyLayerSettings[group] || false}
+                        onCheckedChange={(checked) => handleCreamyLayerChange(group, checked)}
+                      />
                       <Label htmlFor={`creamy-layer-${group}`}>Creamy Layer</Label>
                     </div>
                   </div>
@@ -140,13 +392,12 @@ export function Simulator() {
               <div className="space-y-2">
                 <h3 className="text-xl font-semibold">Total Reservation Cap</h3>
                 <Input
-                  type="number" 
-                  placeholder="0%"
-                  value={totalReservationCap}
-                  onChange={(e) => setTotalReservationCap(Math.min(parseFloat(e.target.value) || 0, 100))}
-                  min="0"
-                  max="100"
+                  type="text"
+                  placeholder="Enter percentage"
+                  value={totalReservationCap || ''}
+                  onChange={(e) => handleTotalCapChange(e.target.value)}
                 />
+                {errors.totalCap && <p className="text-red-500 text-sm">{errors.totalCap}</p>}
                 <div className="flex justify-between">
                   <span>Remaining General Quota: {remainingGeneralQuota}%</span>
                 </div>
@@ -154,17 +405,32 @@ export function Simulator() {
               <div className="space-y-2">
                 <h3 className="text-xl font-semibold">Economically Weaker Section Reservation</h3>
                 <p>(Applies to only excluded class)</p>
-                <Input placeholder="0%" />
+                <Input
+                  type="text" // Changed from "number" to "text"
+                  placeholder="0%"
+                  value={ewsSettings.percentage || ''}
+                  onChange={(e) => handleEWSChange(e.target.value)}
+                />
+                {errors.ews && <p className="text-red-500 text-sm">{errors.ews}</p>}
                 <div className="flex items-center space-x-2">
-                  <Switch id="all-classes" />
+                  <Switch
+                    id="all-classes"
+                    checked={ewsSettings.allClassesEligible}
+                    onCheckedChange={(checked) => setEwsSettings(prev => ({ ...prev, allClassesEligible: checked }))}
+                  />
                   <Label htmlFor="all-classes">All classes are eligible</Label>
                 </div>
               </div>
               <div className="flex justify-end space-x-2">
                 <DrawerClose asChild>
-                  <Button variant="outline">Close</Button>
+                  <Button variant="outline" onClick={handleCloseDrawer}>Close</Button>
                 </DrawerClose>
-                <Button onClick={handleApplySettings}>Apply</Button>
+                <Button 
+                  onClick={handleApplySettings}
+                  disabled={Object.keys(errors).length > 0 || !isSettingsValid}
+                >
+                  Apply
+                </Button>
               </div>
             </div>
           </DrawerContent>
@@ -304,30 +570,65 @@ export function Simulator() {
 
         <div className="w-full space-y-4">
           <Slider
-            min={2000}
-            max={2050}
-            step={1}
-            value={[year]}
-            onValueChange={(value) => setYear(value[0])}
+            min={startYear}
+            max={maxYear}
+            step={5}
+            value={[currentYear]}
+            onValueChange={(value) => setCurrentYear(value[0])}
           />
           <div className="flex flex-col items-center space-y-2">
-            <span className="text-lg font-semibold">{year}</span>
+            <span className="text-lg font-semibold">{currentYear}</span>
             <div className="space-x-2">
-              <Button variant="outline" size="icon">
-                <Rewind className="h-4 w-4" />
-              </Button>
-              <Button variant="outline" size="icon">
-                <SkipBack className="h-4 w-4" />
-              </Button>
-              <Button size="icon" onClick={() => setIsPlaying(!isPlaying)}>
-                {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-              </Button>
-              <Button variant="outline" size="icon">
-                <SkipForward className="h-4 w-4" />
-              </Button>
-              <Button variant="outline" size="icon">
-                <FastForward className="h-4 w-4" />
-              </Button>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="outline" size="icon" onClick={rewindToStart}>
+                      <Rewind className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Reset to start year</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="outline" size="icon" onClick={rewindYear}>
+                      <Rewind className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Rewind 20 years</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="outline" size="icon" onClick={isPlaying ? pauseSimulation : startSimulation}>
+                      {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>{isPlaying ? 'Pause simulation' : 'Start simulation'}</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="outline" size="icon" onClick={skipYear}>
+                      <SkipForward className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Skip forward 20 years</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
             </div>
           </div>
         </div>

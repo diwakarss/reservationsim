@@ -3,49 +3,40 @@ import { useState } from 'react';
 import { Start } from "@/components/start";
 import { Simulator } from "@/components/simulator";
 
+export type SimulationData = {
+  worldData: { planetName: string; countryName: string };
+  trait: { trait: string } | null;
+  socialClasses: string[];
+  population: string;
+  majorMetrics: {
+    fertilityRate: number;
+    educationAccess: number;
+    jobAccess: number;
+    wealthDistribution: number;
+    populationInPoverty: number;
+    gdpPerCapita: number;
+    socialIndicators: {
+      lifeExpectancy: number;
+      infantMortalityRate: number;
+      crimeRates: string;
+      trustInGovernment: number;
+    };
+  };
+};
+
 export default function HomePage() {
-  const [isSimulationStarted, setIsSimulationStarted] = useState(false);
-  const [planetName, setPlanetName] = useState('');
-  const [countryName, setCountryName] = useState('');
-  const [trait, setTrait] = useState('');
-  const [socialClasses, setSocialClasses] = useState([]);
-  const [population, setPopulation] = useState('');
-  const [majorMetrics, setMajorMetrics] = useState({});
-  
+  const [simulationData, setSimulationData] = useState<SimulationData | null>(null);
 
-
-  const handleStartSimulation = () => {
-    setIsSimulationStarted(true);
+  const handleStartSimulation = (data: SimulationData) => {
+    setSimulationData(data);
   };
 
   return (
     <div className="flex min-h-screen w-full flex-col bg-muted/40">
-      {!isSimulationStarted ? (
+      {!simulationData ? (
         <Start onStartSimulation={handleStartSimulation} />
       ) : (
-        <Simulator initialData={{
-          worldData: {
-            planetName: planetName,
-            countryName: countryName
-          },
-          trait: { trait: trait },
-          socialClasses: socialClasses,
-          population: population,
-          majorMetrics: {
-            fertilityRate: 0,
-            educationAccess: 0,
-            jobAccess: 0,
-            wealthDistribution: 0,
-            populationInPoverty: 0,
-            gdpPerCapita: 0,
-            socialIndicators: {
-              lifeExpectancy: 0,
-              infantMortalityRate: 0,
-              crimeRates: '',
-              trustInGovernment: 0,
-            }
-          }
-        }} />
+        <Simulator initialData={simulationData} />
       )}
     </div>
   );

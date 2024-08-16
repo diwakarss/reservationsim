@@ -7,7 +7,8 @@ import { InfoCircledIcon } from "@radix-ui/react-icons";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { generatePlanetName, generateCountryName, generateSocialClasses, generateTrait, generatePopulation, Trait, SocialClass } from '../lib/nameGenerator';
 import { generateTraitDescription, generateClassDescription } from '../lib/descriptionGenerator';
-import { calculateFertilityRate, calculateHigherEducationAccess, calculateSkilledJobAccess, calculateWealthDistribution, calculateGDPPerCapita, calculateSocialIndicators, calculateAggregatedCrimeRate, calculatePopulationInPoverty } from '../config/initialParameters';
+import { getInitialFertilityRate, getInitialPopulationDistribution, getInitialHigherEducationAccess, getInitialSkilledJobAccess,
+   getInitialWealthDistribution, getInitialGDPPerCapita, getInitialSocialIndicators, getInitialPopulationInPoverty } from '../config/initialParameters';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSimulationContext } from '@/contexts/simulationcontext';
 
@@ -73,18 +74,19 @@ export function Start({ onStartSimulation }: { onStartSimulation: (data: any) =>
   const calculateMajorMetrics = useCallback(() => {
     if (socialClasses.length === 0) return;
 
-    const newMetrics = {
-      fertilityRate: Number(calculateFertilityRate(socialClasses).toFixed(2)),
-      educationAccess: Number((calculateHigherEducationAccess(socialClasses) * 100).toFixed(2)),
-      jobAccess: Number((calculateSkilledJobAccess(socialClasses) * 100).toFixed(2)),
-      wealthDistribution: Number((calculateWealthDistribution(socialClasses) * 100).toFixed(2)),
-      populationInPoverty: Number(calculatePopulationInPoverty(socialClasses).toFixed(2)),
-      gdpPerCapita: Number(calculateGDPPerCapita(socialClasses).toFixed(2)), 
+  const newMetrics = {
+      
+      fertilityRate: Number(getInitialFertilityRate().aggregated.toFixed(2)),
+      educationAccess: Number((getInitialHigherEducationAccess().aggregated * 100).toFixed(2)),
+      jobAccess: Number((getInitialSkilledJobAccess().aggregated * 100).toFixed(2)),
+      wealthDistribution: Number((Number(getInitialWealthDistribution().median) * 100).toFixed(2)),
+      populationInPoverty: Number(getInitialPopulationInPoverty().aggregated.toFixed(2)),
+      gdpPerCapita: Number(getInitialGDPPerCapita().aggregated.toFixed(2)),
       socialIndicators: {
-        lifeExpectancy: Number(calculateSocialIndicators(socialClasses).lifeExpectancy.toFixed(2)),
-        infantMortalityRate: Number(calculateSocialIndicators(socialClasses).infantMortalityRate.toFixed(2)),
-        crimeRates: calculateAggregatedCrimeRate(socialClasses),
-        trustInGovernment: Number((calculateSocialIndicators(socialClasses).trustInGovernment * 100).toFixed(2)),
+        lifeExpectancy: Number(getInitialSocialIndicators().aggregated.lifeExpectancy.toFixed(2)),
+        infantMortalityRate: Number(getInitialSocialIndicators().aggregated.infantMortalityRate.toFixed(2)),
+        crimeRates: getInitialSocialIndicators().aggregated.crimeRates,
+        trustInGovernment: Number((getInitialSocialIndicators().aggregated.trustInGovernment * 100).toFixed(2)),
       },
     };
 
@@ -102,10 +104,10 @@ export function Start({ onStartSimulation }: { onStartSimulation: (data: any) =>
       updateTraitDescription(newTrait, worldData.planetName, worldData.countryName);
 
       const classes = await generateSocialClasses(newTrait, worldData.planetName, worldData.countryName);
-      setSocialClasses(classes);
+      setSocialClasses(classes as SocialClass[]);
 
       // Store the generated class names in the context
-      setClasses(classes);
+      setClasses(classes as SocialClass[]);
 
       const descriptions = await Promise.all(
         classes.map(async (className) => {
@@ -199,15 +201,21 @@ export function Start({ onStartSimulation }: { onStartSimulation: (data: any) =>
     calculateMajorMetrics();
   }, [calculateMajorMetrics]);
 
-  const handleStartSimulation = () => {
-    onStartSimulation({
+  const handleStartSimulation = useCallback(() => {
+    const simulationData = {
       worldData,
       trait,
       socialClasses,
       population,
       majorMetrics
-    });
-  };
+    };
+
+    // Save the simulation data to localStorage or a global state management solution
+    localStorage.setItem('simulationData', JSON.stringify(simulationData));
+
+    // Call the onStartSimulation prop to handle navigation
+    onStartSimulation(simulationData);
+  }, [worldData, trait, socialClasses, population, majorMetrics, onStartSimulation]);
 
   return (
     <TooltipProvider>

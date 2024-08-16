@@ -173,136 +173,287 @@ export const initialParameters = {
   },
 };
 
-// Adjusted Calculations
+// Metrics per class used to load charts on simulator page
 
-export function calculateFertilityRate(socialClasses: string[]): number {
-  return socialClasses.reduce((acc, _, index) => {
-    const classKey = `class${index + 1}` as keyof typeof initialParameters.fertilityRateDistribution;
-    const adjustment = initialParameters.fertilityAdjustment[classKey];
-    const reservationImpact = initialParameters.reservationFertilityImpact[classKey];
-    return acc + (initialParameters.fertilityRateDistribution[classKey] * (1 - adjustment) + reservationImpact);
-  }, 0) / socialClasses.length;
+export function calculateFertilityRatePerClass(socialClass: string): number {
+  const classKey = socialClass as keyof typeof initialParameters.fertilityRateDistribution;
+  const adjustment = initialParameters.fertilityAdjustment[classKey];
+  const reservationImpact = initialParameters.reservationFertilityImpact[classKey];
+  return initialParameters.fertilityRateDistribution[classKey] * (1 - adjustment) + reservationImpact;
 }
 
-export function calculateHigherEducationAccess(socialClasses: string[]): number {
-  let totalAccess = 0;
+export function calculateHigherEducationAccessPerClass(socialClass: string): number {
+  const classKey = socialClass as keyof typeof initialParameters.higherEducationAccess;
+  const classAccess = initialParameters.higherEducationAccess[classKey];
+  const dropoutRate = initialParameters.dropoutRate[classKey];
+  const investmentEffectiveness = initialParameters.educationInvestmentEffectiveness[classKey];
+  const reservationEffect = initialParameters.reservationEffect[classKey];
 
-  socialClasses.forEach((_, index) => {
-    const classKey = `class${index + 1}` as keyof typeof initialParameters.higherEducationAccess;
-    const classAccess = initialParameters.higherEducationAccess[classKey];
-    const dropoutRate = initialParameters.dropoutRate[classKey];
-    const investmentEffectiveness = initialParameters.educationInvestmentEffectiveness[classKey];
-    const reservationEffect = initialParameters.reservationEffect[classKey];
-
-    totalAccess += (classAccess.tertiary + (investmentEffectiveness - dropoutRate) - reservationEffect);
-  });
-
-  return totalAccess / socialClasses.length;
+  return classAccess.tertiary + (investmentEffectiveness - dropoutRate) - reservationEffect;
 }
 
-export function calculateSkilledJobAccess(socialClasses: string[]): number {
-  let totalJobAccess = 0;
+export function calculateSkilledJobAccessPerClass(socialClass: string): number {
+  const classKey = socialClass as keyof typeof initialParameters.skilledJobAccess;
+  const baseAccess = initialParameters.skilledJobAccess[classKey] || 0.05;
+  const educationImpact = initialParameters.higherEducationAccess[classKey].tertiary * 0.4;
+  const povertyImpact = (1 - initialParameters.povertyIndicator[classKey]) * 0.4;
+  const skillsMismatch = initialParameters.skillsMismatchFactor[classKey];
 
-  socialClasses.forEach((_, index) => {
-    const classKey = `class${index + 1}` as keyof typeof initialParameters.skilledJobAccess;
-    const baseAccess = initialParameters.skilledJobAccess[classKey] || 0.05; 
-    const educationImpact = initialParameters.higherEducationAccess[classKey].tertiary * 0.4; 
-    const povertyImpact = (1 - initialParameters.povertyIndicator[classKey]) * 0.4;
-    const skillsMismatch = initialParameters.skillsMismatchFactor[classKey];
-    
-    totalJobAccess += baseAccess * educationImpact * povertyImpact * (1 - skillsMismatch);
-  });
-
-  return Math.min(totalJobAccess / socialClasses.length, 1.0);
+  return Math.min(baseAccess * educationImpact * povertyImpact * (1 - skillsMismatch), 1.0);
 }
 
-export function calculateWealthDistribution(socialClasses: string[]): number {
-  const totalWealth = Object.values(initialParameters.wealthDistribution).reduce((sum, value) => sum + value, 0);
-  const middleClassWealth = initialParameters.wealthDistribution.class3;
-  return middleClassWealth / totalWealth;
+export function calculateWealthDistributionPerClass(socialClass: string): number {
+  const classKey = socialClass as keyof typeof initialParameters.wealthDistribution;
+  return initialParameters.wealthDistribution[classKey];
 }
 
-export function calculateGDPPerCapita(socialClasses: string[]): number {
-  let totalGDP = 0;
-  let totalPopulationShare = 0;
+export function calculateGDPPerCapitaPerClass(socialClass: string): number {
+  const classKey = socialClass as keyof typeof initialParameters.gdpPerCapita;
+  const populationKey = socialClass as keyof typeof initialParameters.populationDistribution;
+  const gdp = initialParameters.gdpPerCapita[classKey];
+  const populationShare = initialParameters.populationDistribution[populationKey];
+  const wealthRedistribution = initialParameters.wealthRedistributionEffect[classKey];
 
-  socialClasses.forEach((_, index) => {
-    const classKey = `class${index + 1}` as keyof typeof initialParameters.gdpPerCapita;
-    const populationKey = `class${index + 1}` as keyof typeof initialParameters.populationDistribution;
-    const gdp = initialParameters.gdpPerCapita[classKey];
-    const populationShare = initialParameters.populationDistribution[populationKey];
-
-    const wealthRedistribution = initialParameters.wealthRedistributionEffect[classKey];
-    
-    totalGDP += (gdp + wealthRedistribution) * populationShare;
-    totalPopulationShare += populationShare;
-  });
-
-  return totalGDP / totalPopulationShare;
+  return (gdp + wealthRedistribution) * populationShare;
 }
 
-export function calculateSocialIndicators(socialClasses: string[]): any {
-  const lifeExpectancy = socialClasses.reduce((acc, _, index) => {
-    const classKey = `class${index + 1}` as keyof typeof initialParameters.socialIndicators.lifeExpectancy;
-    return acc + initialParameters.socialIndicators.lifeExpectancy[classKey];
-  }, 0) / socialClasses.length;
+export function calculatePopulationInPovertyPerClass(socialClass: string): number {
+  const classKey = socialClass as keyof typeof initialParameters.populationDistribution;
+  const populationShare = initialParameters.populationDistribution[classKey];
+  const povertyShare = initialParameters.povertyIndicator[classKey];
 
-  const socialUnrest = socialClasses.reduce((acc, _, index) => {
-    const classKey = `class${index + 1}` as keyof typeof initialParameters.socialUnrestFactor;
-    return acc + initialParameters.socialUnrestFactor[classKey];
-  }, 0) / socialClasses.length;
+  return populationShare * povertyShare * 100;
+}
+
+//Aggregated metrics per class used to load charts on view stats panel
+
+export function calculateSocialIndicatorsPerClass(socialClass: string): any {
+  const classKey = socialClass as keyof typeof initialParameters.socialIndicators.lifeExpectancy;
+
+  const lifeExpectancy = initialParameters.socialIndicators.lifeExpectancy[classKey];
+  const infantMortalityRate = initialParameters.socialIndicators.infantMortalityRate[classKey];
+  const crimeRates = initialParameters.socialIndicators.crimeRates[classKey];
+  const trustInGovernment = initialParameters.socialIndicators.trustInGovernment[classKey];
 
   return {
-    lifeExpectancy: lifeExpectancy * (1 - socialUnrest), 
-    infantMortalityRate: (initialParameters.socialIndicators.infantMortalityRate.class1 + initialParameters.socialIndicators.infantMortalityRate.class5) / 2,
-    crimeRates: socialClasses.map((_, index) => {
-      const classKey = `class${index + 1}` as keyof typeof initialParameters.socialIndicators.crimeRates;
-      return initialParameters.socialIndicators.crimeRates[classKey] || 'medium';
-    }),
-    trustInGovernment: socialClasses.reduce((acc, _, index) => {
-      const classKey = `class${index + 1}` as keyof typeof initialParameters.socialIndicators.trustInGovernment;
-      return acc + (initialParameters.socialIndicators.trustInGovernment[classKey] || 0.5);
-    }, 0) / socialClasses.length,
+    lifeExpectancy,
+    infantMortalityRate,
+    crimeRates,
+    trustInGovernment,
   };
 }
 
-export function calculateAggregatedCrimeRate(socialClasses: string[]): string {
-  const crimeRateCounts: Record<string, number> = {
+export function getInitialPopulationDistribution(): { aggregated: number, perClass: Record<string, number> } {
+  const perClassPopulation: Record<string, number> = {};
+  let totalPopulation = 0;
+
+  Object.keys(initialParameters.populationDistribution).forEach((classKey) => {
+    const populationShare = initialParameters.populationDistribution[classKey as keyof typeof initialParameters.populationDistribution];
+    const classPopulation = populationShare * 100; 
+
+    perClassPopulation[classKey] = classPopulation;
+    totalPopulation += classPopulation;
+  });
+
+  return {
+    aggregated: totalPopulation,
+    perClass: perClassPopulation
+  };
+}
+
+export function getInitialFertilityRate(): { aggregated: number, perClass: Record<string, number> } {
+  const perClassFertilityRate: Record<string, number> = {};
+  let totalFertilityRate = 0;
+
+  Object.keys(initialParameters.fertilityRateDistribution).forEach((classKey) => {
+    const adjustment = initialParameters.fertilityAdjustment[classKey as keyof typeof initialParameters.fertilityAdjustment];
+    const reservationImpact = initialParameters.reservationFertilityImpact[classKey as keyof typeof initialParameters.reservationFertilityImpact];
+    const fertilityRate = initialParameters.fertilityRateDistribution[classKey as keyof typeof initialParameters.fertilityRateDistribution] * (1 - adjustment) + reservationImpact;
+    
+    perClassFertilityRate[classKey] = fertilityRate;
+    totalFertilityRate += fertilityRate;
+  });
+
+  return {
+    aggregated: totalFertilityRate / Object.keys(initialParameters.fertilityRateDistribution).length,
+    perClass: perClassFertilityRate
+  };
+}
+
+
+export function getInitialHigherEducationAccess(): { aggregated: number, perClass: Record<string, number> } {
+  const perClassEducationAccess: Record<string, number> = {};
+  let totalEducationAccess = 0;
+
+  Object.keys(initialParameters.higherEducationAccess).forEach((classKey) => {
+    const classAccess = initialParameters.higherEducationAccess[classKey as keyof typeof initialParameters.higherEducationAccess];
+    const dropoutRate = initialParameters.dropoutRate[classKey as keyof typeof initialParameters.dropoutRate];
+    const investmentEffectiveness = initialParameters.educationInvestmentEffectiveness[classKey as keyof typeof initialParameters.educationInvestmentEffectiveness];
+    const reservationEffect = initialParameters.reservationEffect[classKey as keyof typeof initialParameters.reservationEffect];
+
+    const educationAccess = classAccess.tertiary + (investmentEffectiveness - dropoutRate) - reservationEffect;
+    
+    perClassEducationAccess[classKey] = educationAccess;
+    totalEducationAccess += educationAccess;
+  });
+
+  return {
+    aggregated: totalEducationAccess / Object.keys(initialParameters.higherEducationAccess).length,
+    perClass: perClassEducationAccess
+  };
+}
+
+export function getInitialSkilledJobAccess(): { aggregated: number, perClass: Record<string, number> } {
+  const perClassJobAccess: Record<string, number> = {};
+  let totalJobAccess = 0;
+
+  Object.keys(initialParameters.skilledJobAccess).forEach((classKey) => {
+    const baseAccess = initialParameters.skilledJobAccess[classKey as keyof typeof initialParameters.skilledJobAccess] || 0.05;
+    const educationImpact = initialParameters.higherEducationAccess[classKey as keyof typeof initialParameters.higherEducationAccess].tertiary * 0.4;
+    const povertyImpact = (1 - initialParameters.povertyIndicator[classKey as keyof typeof initialParameters.povertyIndicator]) * 0.4;
+    const skillsMismatch = initialParameters.skillsMismatchFactor[classKey as keyof typeof initialParameters.skillsMismatchFactor];
+
+    const jobAccess = Math.min(baseAccess * educationImpact * povertyImpact * (1 - skillsMismatch), 1.0);
+    
+    perClassJobAccess[classKey] = jobAccess;
+    totalJobAccess += jobAccess;
+  });
+
+  return {
+    aggregated: totalJobAccess / Object.keys(initialParameters.skilledJobAccess).length,
+    perClass: perClassJobAccess
+  };
+}
+
+
+export function getInitialWealthDistribution(): { median: number, perClass: Record<string, number> } {
+  const perClassWealth: Record<string, number> = {};
+  let totalWealth = 0;
+  let middleClassWealth = 0;
+
+  // Iterate through each class and calculate wealth distribution
+  Object.keys(initialParameters.wealthDistribution).forEach((classKey) => {
+    const classWealth = initialParameters.wealthDistribution[classKey as keyof typeof initialParameters.wealthDistribution];
+
+    if (typeof classWealth === 'number') {
+      perClassWealth[classKey] = classWealth;
+      totalWealth += classWealth;
+
+      if (classKey === 'class3') {
+        middleClassWealth = classWealth;
+      }
+    }
+  });
+
+  // Calculate the median (middle class) wealth distribution
+  const medianWealthDistribution = totalWealth > 0 ? (middleClassWealth / totalWealth) : 0;
+
+  return {
+    median: medianWealthDistribution,
+    perClass: perClassWealth
+  };
+}
+
+
+
+export function getInitialGDPPerCapita(): { aggregated: number, perClass: Record<string, number> } {
+  const perClassGDP: Record<string, number> = {};
+  let totalGDP = 0;
+  let totalPopulationShare = 0;
+
+  Object.keys(initialParameters.gdpPerCapita).forEach((classKey) => {
+    const gdp = initialParameters.gdpPerCapita[classKey as keyof typeof initialParameters.gdpPerCapita];
+    const populationShare = initialParameters.populationDistribution[classKey as keyof typeof initialParameters.populationDistribution];
+    const wealthRedistribution = initialParameters.wealthRedistributionEffect[classKey as keyof typeof initialParameters.wealthRedistributionEffect];
+
+    const adjustedGDP = gdp + wealthRedistribution;
+    const classGDP = adjustedGDP * populationShare;
+
+    perClassGDP[classKey] = classGDP;
+    totalGDP += classGDP;
+    totalPopulationShare += populationShare;
+  });
+
+  return {
+    aggregated: totalGDP / totalPopulationShare,
+    perClass: perClassGDP
+  };
+}
+
+export function getInitialSocialIndicators(): { aggregated: any, perClass: Record<string, any> } {
+  const perClassIndicators: Record<string, any> = {};
+  let totalLifeExpectancy = 0;
+  let totalTrustInGovernment = 0;
+  let aggregatedCrimeRates: Record<string, number> = {
     'Very low': 0,
     'Low': 0,
     'Medium': 0,
     'High': 0,
     'Very high': 0,
   };
+  let totalIMR = 0;
+  let totalPopulationShare = 0;
 
-  socialClasses.forEach((_, index) => {
-    const classKey = `class${index + 1}` as keyof typeof initialParameters.socialIndicators.crimeRates;
-    const crimeRate = initialParameters.socialIndicators.crimeRates[classKey];
-    if (crimeRate) {
-      crimeRateCounts[crimeRate]++;
-    }
+  Object.keys(initialParameters.socialIndicators.lifeExpectancy).forEach((classKey) => {
+    const lifeExpectancy = initialParameters.socialIndicators.lifeExpectancy[classKey as keyof typeof initialParameters.socialIndicators.lifeExpectancy];
+    const infantMortalityRate = initialParameters.socialIndicators.infantMortalityRate[classKey as keyof typeof initialParameters.socialIndicators.infantMortalityRate];
+    const crimeRates = initialParameters.socialIndicators.crimeRates[classKey as keyof typeof initialParameters.socialIndicators.crimeRates];
+    const trustInGovernment = initialParameters.socialIndicators.trustInGovernment[classKey as keyof typeof initialParameters.socialIndicators.trustInGovernment];
+    const populationShare = initialParameters.populationDistribution[classKey as keyof typeof initialParameters.populationDistribution];
+
+    perClassIndicators[classKey] = {
+      lifeExpectancy,
+      infantMortalityRate,
+      crimeRates,
+      trustInGovernment,
+    };
+
+    totalLifeExpectancy += lifeExpectancy;
+    totalTrustInGovernment += trustInGovernment;
+    aggregatedCrimeRates[crimeRates]++;
+    totalIMR += infantMortalityRate * populationShare;
+    totalPopulationShare += populationShare;
   });
 
-  let maxCount = 0;
-  let mostCommonCrimeRate = 'Medium';
-  for (const rate in crimeRateCounts) {
-    if (crimeRateCounts[rate] > maxCount) {
-      maxCount = crimeRateCounts[rate];
-      mostCommonCrimeRate = rate;
-    }
-  }
+  const mostCommonCrimeRate = Object.keys(aggregatedCrimeRates).reduce((a, b) => 
+    aggregatedCrimeRates[a] > aggregatedCrimeRates[b] ? a : b
+  );
 
-  return mostCommonCrimeRate;
+  const socialUnrest = Object.values(initialParameters.socialUnrestFactor).reduce((acc, value) => acc + value, 0) / Object.keys(initialParameters.socialUnrestFactor).length;
+
+  return {
+    aggregated: {
+      lifeExpectancy: (totalLifeExpectancy / Object.keys(initialParameters.socialIndicators.lifeExpectancy).length) * (1 - socialUnrest),
+      infantMortalityRate: totalIMR / totalPopulationShare, // Weighted average IMR
+      crimeRates: mostCommonCrimeRate,
+      trustInGovernment: totalTrustInGovernment / Object.keys(initialParameters.socialIndicators.trustInGovernment).length,
+    },
+    perClass: perClassIndicators
+  };
 }
 
-export function calculatePopulationInPoverty(socialClasses: string[]): number {
-  return socialClasses.reduce((totalPoverty, className, index) => {
-    const classKey = `class${index + 1}` as keyof typeof initialParameters.populationDistribution;
-    const populationShare = initialParameters.populationDistribution[classKey];
-    const povertyShare = initialParameters.povertyIndicator[classKey];
-    return totalPoverty + (populationShare * povertyShare);
-  }, 0) * 100;
+
+export function getInitialPopulationInPoverty(): { aggregated: number, perClass: Record<string, number> } {
+  const perClassPoverty: Record<string, number> = {};
+  let totalPoverty = 0;
+
+  Object.keys(initialParameters.populationDistribution).forEach((classKey) => {
+    const populationShare = initialParameters.populationDistribution[classKey as keyof typeof initialParameters.populationDistribution];
+    const povertyShare = initialParameters.povertyIndicator[classKey as keyof typeof initialParameters.povertyIndicator];
+
+    const classPoverty = populationShare * povertyShare * 100;
+
+    perClassPoverty[classKey] = classPoverty;
+    totalPoverty += classPoverty;
+  });
+
+  return {
+    aggregated: totalPoverty,
+    perClass: perClassPoverty
+  };
 }
+
+//Variable metrics used in the calculation of the metrics over time
 
 export function calculateSkillsMismatch(socialClasses: string[]): number {
   return socialClasses.reduce((acc, _, index) => {
@@ -325,123 +476,253 @@ export function calculateSocialUnrest(socialClasses: string[]): number {
   }, 0) / socialClasses.length;
 }
 
+//Metrics over time used to calculate when the simulation is run
+
 export function calculatePopulationOverTime(
-  socialClasses: SocialClass[],
+  socialClasses: string[],
   year: number,
   reservations: Record<string, number>
-): any {
-  return socialClasses.map((className: SocialClass) => {
-    const population = initialParameters.populationDistribution[className];
-    const birthRate = initialParameters.fertilityRateDistribution[className];
-    const deathRate = initialParameters.deathRate[className];
-    const migrationEffect = initialParameters.migrationEffect[className];
+): { aggregated: number, perClass: Record<string, number> } {
+  let totalPopulation = 0;
+  const perClassPopulation: Record<string, number> = {};
+
+  socialClasses.forEach((className) => {
+    const classKey = className as keyof typeof initialParameters.populationDistribution;
+    const population = initialParameters.populationDistribution[classKey];
+    const birthRate = initialParameters.fertilityRateDistribution[classKey];
+    const deathRate = initialParameters.deathRate[classKey];
+    const migrationEffect = initialParameters.migrationEffect[classKey];
     const reservationEffect = reservations[className] || 0;
 
     const populationAtYear = population + (population * birthRate) - (population * deathRate) + migrationEffect - (population * reservationEffect);
-    return {
-      name: className,
-      value: Math.max(0, populationAtYear),  // Ensuring population doesn't drop below zero
-    };
+    const adjustedPopulation = Math.max(0, populationAtYear);
+
+    perClassPopulation[className] = adjustedPopulation;
+    totalPopulation += adjustedPopulation;
   });
+
+  return {
+    aggregated: totalPopulation,  // Aggregated metric
+    perClass: perClassPopulation  // Per-class metrics
+  };
 }
+
+
 
 export function calculateFertilityRateOverTime(
-  socialClasses: SocialClass[],
+  socialClasses: string[],
   year: number,
   reservations: Record<string, number>
-): any {
-  return socialClasses.map((className: SocialClass) => {
-    const baseFertility = initialParameters.fertilityRateDistribution[className];
-    const adjustmentFactor = initialParameters.fertilityAdjustment[className];
-    const reservationImpact = initialParameters.reservationFertilityImpact[className];
+): { aggregated: number, perClass: Record<string, number> } {
+  let totalFertilityRate = 0;
+  const perClassFertilityRate: Record<string, number> = {};
+
+  socialClasses.forEach((className) => {
+    const classKey = className as keyof typeof initialParameters.fertilityRateDistribution;
+    const baseFertility = initialParameters.fertilityRateDistribution[classKey];
+    const adjustmentFactor = initialParameters.fertilityAdjustment[classKey];
+    const reservationImpact = initialParameters.reservationFertilityImpact[classKey];
+
+    const fertilityRateAtYear = Math.max(0, baseFertility * (1 - adjustmentFactor) + reservationImpact);
     
-    const fertilityRateAtYear = baseFertility * (1 - adjustmentFactor) + reservationImpact;
-    return {
-      name: className,
-      value: Math.max(0, fertilityRateAtYear),  // Prevent negative fertility rates
-    };
+    perClassFertilityRate[className] = fertilityRateAtYear;
+    totalFertilityRate += fertilityRateAtYear;
   });
+
+  return {
+    aggregated: totalFertilityRate / socialClasses.length,  // Aggregated metric
+    perClass: perClassFertilityRate  // Per-class metrics
+  };
 }
+
 
 export function calculateEducationAccessOverTime(
-  socialClasses: SocialClass[],
+  socialClasses: string[],
   year: number,
   reservations: Record<string, number>
-): any {
-  return socialClasses.map((className: SocialClass) => {
-    const baseEducationAccess = initialParameters.higherEducationAccess[className].tertiary;
-    const dropoutRate = initialParameters.dropoutRate[className];
-    const investmentEffectiveness = initialParameters.educationInvestmentEffectiveness[className];
+): { aggregated: number, perClass: Record<string, number> } {
+  let totalEducationAccess = 0;
+  const perClassEducationAccess: Record<string, number> = {};
+
+  socialClasses.forEach((className, index) => {
+    const classKey = `class${index + 1}` as keyof typeof initialParameters.higherEducationAccess;
+    const baseEducationAccess = initialParameters.higherEducationAccess[classKey].tertiary;
+    const dropoutRate = initialParameters.dropoutRate[classKey];
+    const investmentEffectiveness = initialParameters.educationInvestmentEffectiveness[classKey];
     const reservationEffect = reservations[className] || 0;
 
-    const educationAccessAtYear = baseEducationAccess + (investmentEffectiveness - dropoutRate) - reservationEffect;
-    return {
-      name: className,
-      value: Math.max(0, Math.min(1, educationAccessAtYear)),  // Ensures education access stays within 0-1
-    };
+    const educationAccessAtYear = Math.max(0, Math.min(1, baseEducationAccess + (investmentEffectiveness - dropoutRate) - reservationEffect));
+    
+    perClassEducationAccess[className] = educationAccessAtYear;
+    totalEducationAccess += educationAccessAtYear;
   });
+
+  return {
+    aggregated: totalEducationAccess / socialClasses.length,  // Aggregated metric
+    perClass: perClassEducationAccess  // Per-class metrics
+  };
 }
+
 
 export function calculateJobAccessOverTime(
-  socialClasses: SocialClass[],
+  socialClasses: string[],
   year: number,
   reservations: Record<string, number>
-): any {
-  return socialClasses.map((className: SocialClass) => {
-    const baseJobAccess = initialParameters.skilledJobAccess[className];
-    const economicGrowth = initialParameters.economicGrowth[className];
+): { aggregated: number, perClass: Record<string, number> } {
+  let totalJobAccess = 0;
+  const perClassJobAccess: Record<string, number> = {};
+
+  socialClasses.forEach((className, index) => {
+    const classKey = `class${index + 1}` as keyof typeof initialParameters.skilledJobAccess;
+    const baseJobAccess = initialParameters.skilledJobAccess[classKey];
+    const economicGrowth = initialParameters.economicGrowth[classKey];
     const unemploymentRate = 1 - baseJobAccess;  // Assuming unemployment rate is inverse of job access
     const reservationEffect = reservations[className] || 0;
-    const skillsMismatch = initialParameters.skillsMismatchFactor[className];
+    const skillsMismatch = initialParameters.skillsMismatchFactor[classKey];
+
+    const jobAccessAtYear = Math.max(0, Math.min(1, baseJobAccess + (economicGrowth - unemploymentRate) - reservationEffect * (1 - skillsMismatch)));
     
-    const jobAccessAtYear = baseJobAccess + (economicGrowth - unemploymentRate) - reservationEffect * (1 - skillsMismatch);
-    return {
-      name: className,
-      value: Math.max(0, Math.min(1, jobAccessAtYear)),  // Ensures job access stays between 0 and 1
-    };
+    perClassJobAccess[className] = jobAccessAtYear;
+    totalJobAccess += jobAccessAtYear;
   });
+
+  return {
+    aggregated: totalJobAccess / socialClasses.length,  // Aggregated metric
+    perClass: perClassJobAccess  // Per-class metrics
+  };
 }
+
 
 export function calculateWealthDistributionOverTime(
-  socialClasses: SocialClass[],
+  socialClasses: string[],
   year: number,
   reservations: Record<string, number>
-): any {
-  return socialClasses.map((className: SocialClass) => {
-    const baseWealth = initialParameters.wealthDistribution[className];
-    const savingsRate = initialParameters.savingsRate[className];
-    const consumptionRate = initialParameters.consumptionRate[className];
-    const reservationEffect = reservations[className] || 0;
-    const wealthRedistribution = initialParameters.wealthRedistributionEffect[className];
+): { aggregated: number, perClass: Record<string, number> } {
+  let totalWealth = 0;
+  const perClassWealth: Record<string, number> = {};
 
-    const wealthAtYear = baseWealth + (savingsRate - consumptionRate) + wealthRedistribution + reservationEffect;
-    return {
-      name: className,
-      value: Math.max(0, wealthAtYear),  // Prevent negative wealth values
-    };
+  socialClasses.forEach((className, index) => {
+    const classKey = `class${index + 1}` as keyof typeof initialParameters.wealthDistribution;
+    const baseWealth = initialParameters.wealthDistribution[classKey];
+    const savingsRate = initialParameters.savingsRate[classKey];
+    const consumptionRate = initialParameters.consumptionRate[classKey];
+    const reservationEffect = reservations[className] || 0;
+    const wealthRedistribution = initialParameters.wealthRedistributionEffect[classKey];
+
+    const wealthAtYear = Math.max(0, baseWealth + (savingsRate - consumptionRate) + wealthRedistribution + reservationEffect);
+
+    perClassWealth[className] = wealthAtYear;
+    totalWealth += wealthAtYear;
   });
+
+  return {
+    aggregated: totalWealth / socialClasses.length,  // Aggregated metric
+    perClass: perClassWealth  // Per-class metrics
+  };
 }
+
 
 export function calculateSocialIndicatorsOverTime(
-  socialClasses: SocialClass[],
+  socialClasses: string[],
   year: number,
   reservations: Record<string, number>
-): any {
-  return socialClasses.map((className: SocialClass) => {
-    const baseLifeExpectancy = initialParameters.socialIndicators.lifeExpectancy[className];
-    const baseInfantMortalityRate = initialParameters.socialIndicators.infantMortalityRate[className];
-    const trustInGovernment = initialParameters.socialIndicators.trustInGovernment[className];
-    const crimeRate = initialParameters.socialIndicators.crimeRates[className];
-    const reservationEffect = reservations[className] || 0;
-    const socialUnrest = initialParameters.socialUnrestFactor[className];
+): { aggregated: any, perClass: Record<string, any> } {
+  let totalLifeExpectancy = 0;
+  let totalSocialUnrest = 0;
+  const perClassIndicators: Record<string, any> = {};
 
-    return {
-      name: className,
-      lifeExpectancy: Math.max(0, baseLifeExpectancy * (1 - reservationEffect) * (1 - socialUnrest)),
-      infantMortalityRate: baseInfantMortalityRate * (1 + reservationEffect),
+  socialClasses.forEach((className, index) => {
+    const classKey = `class${index + 1}` as keyof typeof initialParameters.socialIndicators.lifeExpectancy;
+    const baseLifeExpectancy = initialParameters.socialIndicators.lifeExpectancy[classKey];
+    const baseInfantMortalityRate = initialParameters.socialIndicators.infantMortalityRate[classKey];
+    const trustInGovernment = initialParameters.socialIndicators.trustInGovernment[classKey];
+    const crimeRate = initialParameters.socialIndicators.crimeRates[classKey];
+    const reservationEffect = reservations[className] || 0;
+    const socialUnrest = initialParameters.socialUnrestFactor[classKey];
+
+    const adjustedLifeExpectancy = Math.max(0, baseLifeExpectancy * (1 - reservationEffect) * (1 - socialUnrest));
+    const adjustedInfantMortalityRate = baseInfantMortalityRate * (1 + reservationEffect);
+    const adjustedTrustInGovernment = Math.max(0, trustInGovernment * (1 - reservationEffect));
+
+    perClassIndicators[className] = {
+      lifeExpectancy: adjustedLifeExpectancy,
+      infantMortalityRate: adjustedInfantMortalityRate,
       crimeRates: crimeRate,
-      trustInGovernment: Math.max(0, trustInGovernment * (1 - reservationEffect)),
+      trustInGovernment: adjustedTrustInGovernment,
     };
+
+    totalLifeExpectancy += adjustedLifeExpectancy;
+    totalSocialUnrest += socialUnrest;
   });
+
+  return {
+    aggregated: {
+      lifeExpectancy: totalLifeExpectancy / socialClasses.length,
+      socialUnrest: totalSocialUnrest / socialClasses.length,
+    },  // Aggregated metrics
+    perClass: perClassIndicators  // Per-class metrics
+  };
 }
+
+
+export function calculatePopulationInPovertyOverTime(
+  socialClasses: string[],
+  year: number,
+  reservations: Record<string, number>
+): { aggregated: number, perClass: Record<string, number> } {
+  let totalPoverty = 0;
+  const perClassPoverty: Record<string, number> = {};
+
+  socialClasses.forEach((className) => {
+    const classKey = className as keyof typeof initialParameters.populationDistribution;
+    const populationShare = initialParameters.populationDistribution[classKey];
+    const povertyShare = initialParameters.povertyIndicator[classKey];
+    const reservationEffect = reservations[className] || 0;
+
+    // Calculate the adjusted poverty rate considering reservations over time
+    const adjustedPovertyShare = Math.min(1, povertyShare + reservationEffect);
+    const classPoverty = populationShare * adjustedPovertyShare * 100;
+
+    perClassPoverty[className] = classPoverty;
+    totalPoverty += classPoverty;
+  });
+
+  return {
+    aggregated: totalPoverty,  // Aggregated metric
+    perClass: perClassPoverty  // Per-class metrics
+  };
+}
+
+export function calculateGDPPerCapitaOverTime(
+  socialClasses: string[],
+  year: number,
+  reservations: Record<string, number>
+): { aggregated: number, perClass: Record<string, number> } {
+  let totalGDP = 0;
+  let totalPopulationShare = 0;
+  const perClassGDP: Record<string, number> = {};
+
+  socialClasses.forEach((className) => {
+    const classKey = className as keyof typeof initialParameters.gdpPerCapita;
+    const populationKey = className as keyof typeof initialParameters.populationDistribution;
+    const gdp = initialParameters.gdpPerCapita[classKey];
+    const populationShare = initialParameters.populationDistribution[populationKey];
+    const wealthRedistribution = initialParameters.wealthRedistributionEffect[classKey];
+    const reservationEffect = reservations[className] || 0;
+
+    // Calculate the adjusted GDP considering wealth redistribution and reservations over time
+    const adjustedGDP = gdp + wealthRedistribution + reservationEffect;
+    const classGDP = adjustedGDP * populationShare;
+
+    perClassGDP[className] = classGDP;
+    totalGDP += classGDP;
+    totalPopulationShare += populationShare;
+  });
+
+  return {
+    aggregated: totalGDP / totalPopulationShare,  // Aggregated metric
+    perClass: perClassGDP  // Per-class metrics
+  };
+}
+
 

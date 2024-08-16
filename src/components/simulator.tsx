@@ -16,29 +16,10 @@ import * as RechartsPrimitive from "recharts";
 import { ChartContainer, ChartTooltip, ChartLegend } from "@/components/ui/chart";
 import { useSimulationContext } from '@/contexts/simulationcontext';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { SimulationData } from '../app/page';
 
 export interface SimulatorProps {
-  initialData: {
-    // Define the structure of your initialData here
-    worldData: { planetName: string; countryName: string };
-    trait: { trait: string } | null;
-    socialClasses: string[];
-    population: string;
-    majorMetrics: {
-      fertilityRate: 0,
-    educationAccess: 0,
-    jobAccess: 0,
-    wealthDistribution: 0,
-    populationInPoverty: 0,
-    gdpPerCapita: 0,
-    socialIndicators: {
-      lifeExpectancy: 0,
-      infantMortalityRate: 0,
-      crimeRates: '',
-      trustInGovernment: 0,
-    },
-    };
-  };
+  initialData: SimulationData;
 }
 
 export function Simulator({ initialData }: SimulatorProps) {
@@ -47,7 +28,7 @@ export function Simulator({ initialData }: SimulatorProps) {
   const [currentYear, setCurrentYear] = useState(startYear);
   const [isPlaying, setIsPlaying] = useState(false);
   const maxYear = startYear + 500;
-  const [totalReservationCap, setTotalReservationCap] = useState(0);
+  const [totalReservationCap, setTotalReservationCap] = useState(100); // Set initial cap to 100%
   const [classReservations, setClassReservations] = useState<Record<string, number>>({});
   const [remainingGeneralQuota, setRemainingGeneralQuota] = useState(100);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -105,9 +86,9 @@ export function Simulator({ initialData }: SimulatorProps) {
 
   useEffect(() => {
     const totalReservation = Object.values(classReservations).reduce((sum, val) => sum + val, 0);
-    const effectiveCap = totalReservationCap || 100;
-    setRemainingGeneralQuota(Math.max(effectiveCap - totalReservation, 0));
-  }, [classReservations, totalReservationCap]);
+    const newRemainingGeneralQuota = Math.max(0, 100 - totalReservation);
+    setRemainingGeneralQuota(newRemainingGeneralQuota);
+  }, [classReservations]);
 
   useEffect(() => {
     return () => {
@@ -139,16 +120,14 @@ export function Simulator({ initialData }: SimulatorProps) {
     const newReservations = { ...classReservations, [className]: numValue };
     const totalReservation = Object.values(newReservations).reduce((sum, val) => sum + val, 0);
 
-    const effectiveCap = totalReservationCap || 100; // Use 100 if no cap is specified
-
-    if (totalReservation <= effectiveCap) {
+    if (totalReservation <= 100) {
       setClassReservations(newReservations);
       setErrors({ ...errors, [className]: '' });
     } else {
-      const availablePercentage = effectiveCap - (totalReservation - numValue);
+      const availablePercentage = 100 - (totalReservation - numValue);
       setErrors({
         ...errors,
-        [className]: `Exceeds ${totalReservationCap ? 'cap' : 'total'}. Available: ${availablePercentage.toFixed(2)}%`
+        [className]: `Exceeds total. Available: ${availablePercentage.toFixed(2)}%`
       });
     }
   };  
@@ -158,7 +137,7 @@ export function Simulator({ initialData }: SimulatorProps) {
     const totalReservation = Object.values(classReservations).reduce((sum, val) => sum + val, 0);
     const newTotal = totalReservation - (classReservations[className] || 0) + value;
 
-    if (newTotal <= totalReservationCap) {
+    if (newTotal <= 100) {
       setErrors({
         ...errors,
         [className]: '', // Clear the error on blur if the input is valid
@@ -328,32 +307,39 @@ export function Simulator({ initialData }: SimulatorProps) {
   // Reverse the classes array before mapping
   const reversedClasses = [...classes].reverse();
 
-  const validateReservations = (cap: number) => {
-    const totalReservation = Object.values(classReservations).reduce((sum, val) => sum + val, 0);
-    if (totalReservation > cap) {
-      setErrors(prevErrors => ({
-        ...prevErrors,
-        totalCap: `Total reservations (${totalReservation}%) exceed the new cap (${cap}%). Please adjust class reservations.`
-      }));
-    } else {
+  const handleTotalCapChange = (value: string) => {
+    // Allow empty string for backspace/delete operations
+    if (value === '') {
+      setTotalReservationCap(0);
       setErrors(prevErrors => {
         const { totalCap, ...rest } = prevErrors;
         return rest;
       });
+      return;
     }
-  };
 
-  const handleTotalCapChange = (value: string) => {
     const numValue = parseFloat(value);
-    if (isNaN(numValue) || numValue < 0 || numValue > 100) {
+    if (isNaN(numValue)) {
       setErrors(prevErrors => ({
         ...prevErrors,
-        totalCap: 'Total cap must be a number between 0 and 100'
+        totalCap: 'Total cap must be a number'
       }));
       return;
     }
+
+    if (numValue < 0 || numValue > 100) {
+      setErrors(prevErrors => ({
+        ...prevErrors,
+        totalCap: 'Total cap must be between 0% and 100%'
+      }));
+      return;
+    }
+
     setTotalReservationCap(numValue);
-    validateReservations(numValue);
+    setErrors(prevErrors => {
+      const { totalCap, ...rest } = prevErrors;
+      return rest;
+    });
   };
 
   return (
@@ -393,13 +379,13 @@ export function Simulator({ initialData }: SimulatorProps) {
                 <h3 className="text-xl font-semibold">Total Reservation Cap</h3>
                 <Input
                   type="text"
-                  placeholder="Enter percentage"
+                  placeholder="0%"
                   value={totalReservationCap || ''}
                   onChange={(e) => handleTotalCapChange(e.target.value)}
                 />
                 {errors.totalCap && <p className="text-red-500 text-sm">{errors.totalCap}</p>}
                 <div className="flex justify-between">
-                  <span>Remaining General Quota: {remainingGeneralQuota}%</span>
+                  <span>Remaining General Quota: {remainingGeneralQuota.toFixed(2)}%</span>
                 </div>
               </div>
               <div className="space-y-2">
@@ -596,7 +582,7 @@ export function Simulator({ initialData }: SimulatorProps) {
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button variant="outline" size="icon" onClick={rewindYear}>
-                      <Rewind className="h-4 w-4" />
+                      <StepBack className="h-4 w-4" />
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>

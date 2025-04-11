@@ -9,7 +9,7 @@ import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/ui/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Drawer, DrawerContent, DrawerTrigger, DrawerClose } from "@/components/ui/drawer";
+import { Drawer, DrawerContent, DrawerTrigger, DrawerClose, DrawerTitle } from "@/components/ui/drawer";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Play, Pause, SkipForward, Rewind, FastForward, SkipBack, StepBack } from "lucide-react";
 import * as RechartsPrimitive from "recharts";
@@ -28,33 +28,40 @@ export function Simulator({ initialData }: SimulatorProps) {
   const [currentYear, setCurrentYear] = useState(startYear);
   const [isPlaying, setIsPlaying] = useState(false);
   const maxYear = startYear + 500;
-  const [totalReservationCap, setTotalReservationCap] = useState(100); // Set initial cap to 100%
-  const [classReservations, setClassReservations] = useState<Record<string, number>>({});
+  const [totalReservationCap, setTotalReservationCap] = useState<number | null>(null); // null means no cap
+  const [classReservations, setClassReservations] = useState<Record<string, number>>({
+    class2: 0,
+    class3: 0,
+    class4: 0,
+    class5: 0
+  });
   const [remainingGeneralQuota, setRemainingGeneralQuota] = useState(100);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [ewsSettings, setEwsSettings] = useState({
+    percentage: 0,
+    allClassesEligible: false
+  });
   const [savedSettings, setSavedSettings] = useState<{
-    totalReservationCap: number;
+    totalReservationCap: number | null;
     classReservations: Record<string, number>;
-    creamyLayerSettings: Record<string, boolean>;
     ewsSettings: {
       percentage: number;
       allClassesEligible: boolean;
     };
   }>({
-    totalReservationCap: 0,
-    classReservations: {},
-    creamyLayerSettings: {},
+    totalReservationCap: null,
+    classReservations: {
+      class2: 0,
+      class3: 0,
+      class4: 0,
+      class5: 0
+    },
     ewsSettings: {
       percentage: 0,
       allClassesEligible: false
     }
   });
-  const [creamyLayerSettings, setCreamyLayerSettings] = useState<Record<string, boolean>>({});
-  const [ewsSettings, setEwsSettings] = useState({
-    percentage: 0,
-    allClassesEligible: false
-  }); 
-  const { toast } = useToast(); 
+  const { toast } = useToast();
 
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -86,9 +93,15 @@ export function Simulator({ initialData }: SimulatorProps) {
 
   useEffect(() => {
     const totalReservation = Object.values(classReservations).reduce((sum, val) => sum + val, 0);
-    const newRemainingGeneralQuota = Math.max(0, 100 - totalReservation);
-    setRemainingGeneralQuota(newRemainingGeneralQuota);
-  }, [classReservations]);
+    
+    // When cap is set, remaining quota is (100 - cap)
+    // When no cap, remaining quota is (100 - actual reservations)
+    if (totalReservationCap !== null) {
+      setRemainingGeneralQuota(100 - totalReservationCap);
+    } else {
+      setRemainingGeneralQuota(Math.max(0, 100 - totalReservation));
+    }
+  }, [classReservations, totalReservationCap]);
 
   useEffect(() => {
     return () => {
@@ -99,39 +112,47 @@ export function Simulator({ initialData }: SimulatorProps) {
   }, []);
 
   const handleReservationChange = (className: string, value: string) => {
-    // Allow empty string for backspace/delete operations
+    // Skip class1 as it's not eligible for reservation
+    if (className === 'class1') return;
+
     if (value === '') {
-      setClassReservations({ ...classReservations, [className]: 0 });
-      setErrors({ ...errors, [className]: '' });
+      setClassReservations(prev => ({ ...prev, [className]: 0 }));
+      setErrors(prev => {
+        const { [className]: removed, ...rest } = prev;
+        return rest;
+      });
       return;
     }
 
     const numValue = parseFloat(value);
     if (isNaN(numValue)) {
-      setErrors({ ...errors, [className]: 'Please enter a valid number' });
+      setErrors(prev => ({ ...prev, [className]: 'Please enter a valid number' }));
       return;
     }
 
     if (numValue < 0 || numValue > 100) {
-      setErrors({ ...errors, [className]: 'Reservation must be between 0% and 100%' });
+      setErrors(prev => ({ ...prev, [className]: 'Reservation must be between 0% and 100%' }));
       return;
     }
 
     const newReservations = { ...classReservations, [className]: numValue };
     const totalReservation = Object.values(newReservations).reduce((sum, val) => sum + val, 0);
+    const effectiveCap = totalReservationCap !== null ? totalReservationCap : 100;
 
-    if (totalReservation <= 100) {
-      setClassReservations(newReservations);
-      setErrors({ ...errors, [className]: '' });
+    if (totalReservation > effectiveCap) {
+      setErrors(prev => ({
+        ...prev,
+        [className]: `Total reservation (${totalReservation}%) exceeds the ${totalReservationCap !== null ? 'cap' : 'maximum'} (${effectiveCap}%)`
+      }));
     } else {
-      const availablePercentage = 100 - (totalReservation - numValue);
-      setErrors({
-        ...errors,
-        [className]: `Exceeds total. Available: ${availablePercentage.toFixed(2)}%`
+      setClassReservations(newReservations);
+      setErrors(prev => {
+        const { [className]: removed, ...rest } = prev;
+        return rest;
       });
     }
-  };  
-  
+  };
+
   const handleBlur = (className: string) => {
     const value = classReservations[className] || 0;
     const totalReservation = Object.values(classReservations).reduce((sum, val) => sum + val, 0);
@@ -145,16 +166,11 @@ export function Simulator({ initialData }: SimulatorProps) {
     }
   };
 
-  const handleCreamyLayerChange = (className: string, value: boolean) => {
-    setCreamyLayerSettings({ ...creamyLayerSettings, [className]: value });
-  };
-
   const handleEWSChange = (value: string) => {
-    // Allow empty string for backspace/delete operations
     if (value === '') {
       setEwsSettings(prev => ({ ...prev, percentage: 0 }));
-      setErrors(prevErrors => {
-        const { ews, ...rest } = prevErrors;
+      setErrors(prev => {
+        const { ews, ...rest } = prev;
         return rest;
       });
       return;
@@ -162,25 +178,28 @@ export function Simulator({ initialData }: SimulatorProps) {
 
     const numValue = parseFloat(value);
     if (isNaN(numValue)) {
-      setErrors(prevErrors => ({
-        ...prevErrors,
-        ews: 'EWS reservation must be a number'
+      setErrors(prev => ({
+        ...prev,
+        ews: 'Please enter a valid number'
       }));
       return;
     }
 
-    if (numValue < 0) {
-      setErrors(prevErrors => ({
-        ...prevErrors,
-        ews: 'EWS reservation must be a non-negative number'
+    if (numValue < 0 || numValue > 100) {
+      setErrors(prev => ({
+        ...prev,
+        ews: 'EWS reservation must be between 0% and 100%'
       }));
       return;
     }
 
-    if (numValue > remainingGeneralQuota) {
-      setErrors(prevErrors => ({
-        ...prevErrors,
-        ews: `EWS reservation cannot exceed remaining general quota (${remainingGeneralQuota}%)`
+    // Calculate maximum allowed EWS based on remaining general quota
+    const maxEWS = remainingGeneralQuota;
+
+    if (numValue > maxEWS) {
+      setErrors(prev => ({
+        ...prev,
+        ews: `EWS reservation cannot exceed remaining general quota (${maxEWS.toFixed(2)}%)`
       }));
       return;
     }
@@ -189,46 +208,38 @@ export function Simulator({ initialData }: SimulatorProps) {
       ...prev,
       percentage: numValue
     }));
-    setErrors(prevErrors => {
-      const { ews, ...rest } = prevErrors;
+    setErrors(prev => {
+      const { ews, ...rest } = prev;
       return rest;
     });
   };
 
-  const [isSettingsValid, setIsSettingsValid] = useState(true);
-
   const validateSettings = () => {
     const totalReservation = Object.values(classReservations).reduce((sum, val) => sum + val, 0);
-    const effectiveCap = totalReservationCap || 100; // Use 100 if no cap is specified
+    const effectiveCap = totalReservationCap !== null ? totalReservationCap : 100;
     
+    let isValid = true;
+    const newErrors: Record<string, string> = {};
+
+    // Validate total reservations against cap
     if (totalReservation > effectiveCap) {
-      setErrors(prevErrors => ({
-        ...prevErrors,
-        totalCap: `Total reservations (${totalReservation}%) exceed the cap (${effectiveCap}%). Please adjust class reservations.`
-      }));
-      setIsSettingsValid(false);
-    } else {
-      setErrors({});
-      setIsSettingsValid(true);
+      newErrors.totalCap = `Total reservations (${totalReservation}%) exceed the ${totalReservationCap !== null ? 'cap' : 'maximum'} (${effectiveCap}%)`;
+      isValid = false;
     }
 
+    // Validate EWS against remaining general quota
     if (ewsSettings.percentage > remainingGeneralQuota) {
-      setErrors(prevErrors => ({
-        ...prevErrors,
-        ews: `EWS reservation (${ewsSettings.percentage}%) exceeds remaining general quota (${remainingGeneralQuota}%)`
-      }));
-      setIsSettingsValid(false);
-    } else {
-      setIsSettingsValid(true);
+      newErrors.ews = `EWS reservation (${ewsSettings.percentage}%) exceeds remaining general quota (${remainingGeneralQuota}%)`;
+      isValid = false;
     }
+
+    setErrors(newErrors);
+    return isValid;
   };
 
-  useEffect(() => {
-    validateSettings();
-  }, [classReservations, totalReservationCap, ewsSettings]);
-
   const handleApplySettings = () => {
-    if (Object.keys(errors).length > 0 || !isSettingsValid) {
+    const isValid = validateSettings();
+    if (!isValid) {
       toast({
         variant: "destructive",
         title: "Error",
@@ -237,11 +248,10 @@ export function Simulator({ initialData }: SimulatorProps) {
       return;
     }
 
-    // Save the settings only if there are no errors
+    // Save the settings
     setSavedSettings({
       totalReservationCap,
       classReservations,
-      creamyLayerSettings,
       ewsSettings
     });
 
@@ -255,41 +265,18 @@ export function Simulator({ initialData }: SimulatorProps) {
       // Reset to last saved settings
       setTotalReservationCap(savedSettings.totalReservationCap);
       setClassReservations(savedSettings.classReservations);
-      setCreamyLayerSettings(savedSettings.creamyLayerSettings);
       setEwsSettings(savedSettings.ewsSettings);
       setErrors({});
     }
   };
 
-  const saveSettings = () => {
-    setSavedSettings({
-      totalReservationCap,
-      classReservations,
-      creamyLayerSettings,
-      ewsSettings
-    });
-    toast({
-      title: "Settings Saved",
-      description: "Your reservation settings have been saved.",
-    });
-  };
-
-  const loadSettings = () => {
-    setTotalReservationCap(savedSettings.totalReservationCap);
-    setClassReservations(savedSettings.classReservations);
-    setCreamyLayerSettings(savedSettings.creamyLayerSettings);
-    setEwsSettings(savedSettings.ewsSettings);
-    toast({
-      title: "Settings Loaded",
-      description: "Your saved reservation settings have been applied.",
-    });
-  };
-
   useEffect(() => {
-    if (Object.keys(savedSettings.classReservations).length > 0) {
-      loadSettings();
+    if (savedSettings.totalReservationCap !== null || Object.values(savedSettings.classReservations).some(val => val > 0)) {
+      setTotalReservationCap(savedSettings.totalReservationCap);
+      setClassReservations(savedSettings.classReservations);
+      setEwsSettings(savedSettings.ewsSettings);
     }
-  }, []);
+  }, [savedSettings]);
   
 
   // Ensure that sampleData and chartConfig are dynamically mapped based on the classes
@@ -308,11 +295,13 @@ export function Simulator({ initialData }: SimulatorProps) {
   const reversedClasses = [...classes].reverse();
 
   const handleTotalCapChange = (value: string) => {
-    // Allow empty string for backspace/delete operations
     if (value === '') {
-      setTotalReservationCap(0);
-      setErrors(prevErrors => {
-        const { totalCap, ...rest } = prevErrors;
+      setTotalReservationCap(null);
+      // When cap is removed, recalculate remaining quota based on actual reservations
+      const totalReservation = Object.values(classReservations).reduce((sum, val) => sum + val, 0);
+      setRemainingGeneralQuota(Math.max(0, 100 - totalReservation));
+      setErrors(prev => {
+        const { totalCap, ...rest } = prev;
         return rest;
       });
       return;
@@ -320,26 +309,37 @@ export function Simulator({ initialData }: SimulatorProps) {
 
     const numValue = parseFloat(value);
     if (isNaN(numValue)) {
-      setErrors(prevErrors => ({
-        ...prevErrors,
-        totalCap: 'Total cap must be a number'
+      setErrors(prev => ({
+        ...prev,
+        totalCap: 'Please enter a valid number'
       }));
       return;
     }
 
     if (numValue < 0 || numValue > 100) {
-      setErrors(prevErrors => ({
-        ...prevErrors,
+      setErrors(prev => ({
+        ...prev,
         totalCap: 'Total cap must be between 0% and 100%'
       }));
       return;
     }
 
     setTotalReservationCap(numValue);
-    setErrors(prevErrors => {
-      const { totalCap, ...rest } = prevErrors;
-      return rest;
-    });
+    setRemainingGeneralQuota(100 - numValue);
+    
+    // Validate existing reservations against new cap
+    const totalReservation = Object.values(classReservations).reduce((sum, val) => sum + val, 0);
+    if (totalReservation > numValue) {
+      setErrors(prev => ({
+        ...prev,
+        totalCap: `Current total reservations (${totalReservation}%) exceed the new cap (${numValue}%)`
+      }));
+    } else {
+      setErrors(prev => {
+        const { totalCap, ...rest } = prev;
+        return rest;
+      });
+    }
   };
 
   return (
@@ -350,6 +350,7 @@ export function Simulator({ initialData }: SimulatorProps) {
             <Button>Reservation Settings</Button>
           </DrawerTrigger>
           <DrawerContent>
+            <DrawerTitle className="p-4 text-2xl font-semibold">Reservation Settings</DrawerTitle>
             <div className="p-4 space-y-4">
               <h2 className="text-2xl font-semibold">Reservation Percentages</h2>
               <div className="grid grid-cols-2 gap-4">
@@ -364,14 +365,6 @@ export function Simulator({ initialData }: SimulatorProps) {
                       onBlur={() => handleBlur(group)} // Clear error on blur
                     />
                     {errors[group] && <p className="text-red-500 text-sm">{errors[group]}</p>}
-                    <div className="flex items-center space-x-2">
-                      <Switch
-                        id={`creamy-layer-${group}`}
-                        checked={creamyLayerSettings[group] || false}
-                        onCheckedChange={(checked) => handleCreamyLayerChange(group, checked)}
-                      />
-                      <Label htmlFor={`creamy-layer-${group}`}>Creamy Layer</Label>
-                    </div>
                   </div>
                 ))}
               </div>
@@ -380,7 +373,7 @@ export function Simulator({ initialData }: SimulatorProps) {
                 <Input
                   type="text"
                   placeholder="0%"
-                  value={totalReservationCap || ''}
+                  value={totalReservationCap !== null ? totalReservationCap.toString() : ''}
                   onChange={(e) => handleTotalCapChange(e.target.value)}
                 />
                 {errors.totalCap && <p className="text-red-500 text-sm">{errors.totalCap}</p>}
@@ -413,7 +406,7 @@ export function Simulator({ initialData }: SimulatorProps) {
                 </DrawerClose>
                 <Button 
                   onClick={handleApplySettings}
-                  disabled={Object.keys(errors).length > 0 || !isSettingsValid}
+                  disabled={false}
                 >
                   Apply
                 </Button>

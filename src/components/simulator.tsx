@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -17,6 +17,7 @@ import { ChartContainer, ChartTooltip, ChartLegend } from "@/components/ui/chart
 import { useSimulationContext } from '@/contexts/simulationcontext';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { SimulationData } from '../app/page';
+import { InfoCircledIcon } from "@radix-ui/react-icons";
 
 export interface SimulatorProps {
   initialData: SimulationData;
@@ -64,6 +65,14 @@ export function Simulator({ initialData }: SimulatorProps) {
   const { toast } = useToast();
 
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [showStats, setShowStats] = useState(false);
+  const hoverCardRef = useRef<HTMLDivElement | null>(null);
+  const [currentMetrics, setCurrentMetrics] = useState(initialData.majorMetrics);
+
+  const capitalizeFirstLetter = (string: string | undefined) => {
+    if (!string) return '';
+    return string.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+  };
 
   const startSimulation = () => {
     setIsPlaying(true);
@@ -342,6 +351,28 @@ export function Simulator({ initialData }: SimulatorProps) {
     }
   };
 
+  const handleCalculateStats = useCallback(() => {
+    setShowStats(true);
+  }, []);
+
+  const handleOutsideClick = useCallback((event: MouseEvent) => {
+    if (hoverCardRef.current && !hoverCardRef.current.contains(event.target as Node)) {
+      setShowStats(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (showStats) {
+      document.addEventListener('click', handleOutsideClick);
+    } else {
+      document.removeEventListener('click', handleOutsideClick);
+    }
+
+    return () => {
+      document.removeEventListener('click', handleOutsideClick);
+    };
+  }, [showStats, handleOutsideClick]);
+
   return (
     <div className="flex flex-col items-center w-full min-h-screen p-4">
       <header className="flex items-center justify-between w-full p-4 border-b">
@@ -417,18 +448,105 @@ export function Simulator({ initialData }: SimulatorProps) {
         <Link href="#" className="text-lg font-semibold">
           Logo
         </Link>
-        <HoverCard>
+        <HoverCard open={showStats}>
           <HoverCardTrigger asChild>
-            <Button variant="ghost">View Stats</Button>
+            <Button variant="ghost" onClick={handleCalculateStats}>View Stats</Button>
           </HoverCardTrigger>
-          <HoverCardContent className="w-80">
-            <div className="flex justify-between space-x-4">
-              <div className="space-y-1">
-                <h4 className="text-sm font-semibold">Simulation Statistics</h4>
-                <p className="text-sm">
-                  View detailed statistics about the current simulation state.
-                </p>
+          <HoverCardContent ref={hoverCardRef} className="w-80">
+            <div className="space-y-2">
+              <p><strong>Total Population:</strong> {initialData.population}</p>
+              <p><strong>Planet Name:</strong> {initialData.worldData.planetName}</p>
+              <p><strong>Country Name:</strong> {initialData.worldData.countryName}</p>
+              <div>
+                <h3 className="font-semibold mb-2">Major Metrics:</h3>
+                <TooltipProvider>
+                  <div className="space-y-2">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <p>Fertility Rate: {currentMetrics.fertilityRate} <InfoCircledIcon className="inline ml-1 h-4 w-4 cursor-help" /></p>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Average number of children born to a woman over her lifetime.</p>
+                      </TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <p>Education Access: {currentMetrics.educationAccess}% <InfoCircledIcon className="inline ml-1 h-4 w-4 cursor-help" /></p>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Percentage of population with access to primary, secondary, and tertiary education.</p>
+                      </TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <p>Job Access: {currentMetrics.jobAccess}% <InfoCircledIcon className="inline ml-1 h-4 w-4 cursor-help" /></p>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Percentage of working-age population with access to skilled jobs.</p>
+                      </TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <p>Wealth Distribution: {currentMetrics.wealthDistribution}% <InfoCircledIcon className="inline ml-1 h-4 w-4 cursor-help" /></p>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Percentage of total wealth owned by the middle class.</p>
+                      </TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <p>Population in Poverty: {currentMetrics.populationInPoverty}% <InfoCircledIcon className="inline ml-1 h-4 w-4 cursor-help" /></p>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Percentage of total population living below the poverty line.</p>
+                      </TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <p>GDP per Capita: {currentMetrics.gdpPerCapita} <InfoCircledIcon className="inline ml-1 h-4 w-4 cursor-help" /></p>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Average economic output per person.</p>
+                      </TooltipContent>
+                    </Tooltip>
+
+                    <h4 className="font-semibold mt-4 mb-2">Social Indicators:</h4>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <p>Life Expectancy: {currentMetrics.socialIndicators.lifeExpectancy} years <InfoCircledIcon className="inline ml-1 h-4 w-4 cursor-help" /></p>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Average number of years a person is expected to live.</p>
+                      </TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <p>Infant Mortality Rate: {currentMetrics.socialIndicators.infantMortalityRate} <InfoCircledIcon className="inline ml-1 h-4 w-4 cursor-help" /></p>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Deaths per 1,000 live births before age one.</p>
+                      </TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <p>Crime Rates: {currentMetrics.socialIndicators.crimeRates} <InfoCircledIcon className="inline ml-1 h-4 w-4 cursor-help" /></p>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Overall level of criminal activity in society.</p>
+                      </TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <p>Trust in Government: {currentMetrics.socialIndicators.trustInGovernment}% <InfoCircledIcon className="inline ml-1 h-4 w-4 cursor-help" /></p>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Percentage of population that trusts public institutions.</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
+                </TooltipProvider>
               </div>
+              <p><strong>Innate Trait:</strong> {initialData.trait ? capitalizeFirstLetter(initialData.trait.trait) : 'None'}</p>
             </div>
           </HoverCardContent>
         </HoverCard>

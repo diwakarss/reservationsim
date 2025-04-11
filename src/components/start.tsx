@@ -72,27 +72,51 @@ export function Start({ onStartSimulation }: { onStartSimulation: (data: any) =>
   }, []);
 
   const calculateMajorMetrics = useCallback(() => {
-    if (socialClasses.length === 0) return;
+    if (socialClasses.length === 0) {
+      console.log('No social classes available yet');
+      return;
+    }
 
-  const newMetrics = {
+    try {
+      const popDistribution = getInitialPopulationDistribution();
+      const fertRate = getInitialFertilityRate();
+      const eduAccess = getInitialHigherEducationAccess();
+      const jobAccess = getInitialSkilledJobAccess();
+      const wealthDist = getInitialWealthDistribution();
+      const poverty = getInitialPopulationInPoverty();
+      const gdp = getInitialGDPPerCapita();
+      const socialInd = getInitialSocialIndicators();
       
-      fertilityRate: Number(getInitialFertilityRate().aggregated.toFixed(2)),
-      educationAccess: Number((getInitialHigherEducationAccess().aggregated * 100).toFixed(2)),
-      jobAccess: Number((getInitialSkilledJobAccess().aggregated * 100).toFixed(2)),
-      wealthDistribution: Number((Number(getInitialWealthDistribution().median) * 100).toFixed(2)),
-      populationInPoverty: Number(getInitialPopulationInPoverty().aggregated.toFixed(2)),
-      gdpPerCapita: Number(getInitialGDPPerCapita().aggregated.toFixed(2)),
-      socialIndicators: {
-        lifeExpectancy: Number(getInitialSocialIndicators().aggregated.lifeExpectancy.toFixed(2)),
-        infantMortalityRate: Number(getInitialSocialIndicators().aggregated.infantMortalityRate.toFixed(2)),
-        crimeRates: getInitialSocialIndicators().aggregated.crimeRates,
-        trustInGovernment: Number((getInitialSocialIndicators().aggregated.trustInGovernment * 100).toFixed(2)),
-      },
-    };
+      // Validate all metrics are available
+      if (!fertRate || !eduAccess || !jobAccess || !wealthDist || !poverty || !gdp || !socialInd) {
+        console.error('Some metrics are missing');
+        return;
+      }
 
-    setMajorMetrics(newMetrics);
-    setMetrics(newMetrics);
-    console.log('Updated metrics:', newMetrics);
+      const newMetrics = {
+        fertilityRate: Number(fertRate.aggregated.toFixed(2)),
+        educationAccess: Number((eduAccess.aggregated * 100).toFixed(2)),
+        jobAccess: Number((jobAccess.aggregated * 100).toFixed(2)),
+        wealthDistribution: Number((wealthDist.median * 100).toFixed(2)),
+        populationInPoverty: Number(poverty.aggregated.toFixed(2)),
+        gdpPerCapita: Number(gdp.aggregated.toFixed(2)),
+        socialIndicators: {
+          lifeExpectancy: Number(socialInd.aggregated.lifeExpectancy.toFixed(2)),
+          infantMortalityRate: Number(socialInd.aggregated.infantMortalityRate.toFixed(2)),
+          crimeRates: socialInd.aggregated.crimeRates,
+          trustInGovernment: Number((socialInd.aggregated.trustInGovernment * 100).toFixed(2)),
+        },
+      };
+
+      // Log the metrics for debugging
+      console.log('Population distribution:', popDistribution);
+      console.log('Calculated metrics:', newMetrics);
+
+      setMajorMetrics(newMetrics);
+      setMetrics(newMetrics);
+    } catch (error) {
+      console.error('Error calculating metrics:', error);
+    }
   }, [socialClasses, setMetrics]);
 
   const handleGenerateTrait = useCallback(async () => {
@@ -116,13 +140,16 @@ export function Start({ onStartSimulation }: { onStartSimulation: (data: any) =>
         })
       );
       setClassDescriptions(Object.fromEntries(descriptions));
+
+      // Calculate metrics after social classes are generated
+      setTimeout(calculateMajorMetrics, 0);
     } catch (err) {
       setError('Failed to generate trait. Please try again.');
       console.error(err);
     } finally {
       setLoading(false);
     }
-  }, [worldData, updateTraitDescription, setClasses]);
+  }, [worldData, updateTraitDescription, setClasses, calculateMajorMetrics]);
 
   const handleRandomize = useCallback(async () => {
     try {
@@ -154,18 +181,25 @@ export function Start({ onStartSimulation }: { onStartSimulation: (data: any) =>
         })
       );
       setClassDescriptions(Object.fromEntries(descriptions));
+
+      // Calculate metrics after social classes are generated
+      setTimeout(calculateMajorMetrics, 0);
     } catch (err) {
       setError("Failed to randomize data. Please try again.");
       console.error("Error during randomize:", err);
     } finally {
       setLoading(false);
     }
-  }, [updateTraitDescription, setClasses]);
+  }, [updateTraitDescription, setClasses, calculateMajorMetrics]);
 
   const handleCalculateStats = useCallback(() => {
+    if (socialClasses.length === 0) {
+      console.log('Cannot calculate stats: No social classes available');
+      return;
+    }
     calculateMajorMetrics();
     setShowStats(true);
-  }, [calculateMajorMetrics]);
+  }, [calculateMajorMetrics, socialClasses]);
 
   const handleOutsideClick = useCallback((event: MouseEvent) => {
     if (hoverCardRef.current && !hoverCardRef.current.contains(event.target as Node)) {
@@ -175,15 +209,25 @@ export function Start({ onStartSimulation }: { onStartSimulation: (data: any) =>
 
   useEffect(() => {
     const initialize = async () => {
-      await handleRandomize();
-      setLoading(false);
+      try {
+        setLoading(true);
+        await handleRandomize();
+        // Calculate metrics after initialization with a small delay to ensure state updates
+        setTimeout(() => {
+          calculateMajorMetrics();
+          setLoading(false);
+        }, 100);
+      } catch (error) {
+        console.error('Error during initialization:', error);
+        setLoading(false);
+      }
     };
 
     if (!isInitialized.current) {
       initialize();
       isInitialized.current = true;
     }
-  }, [handleRandomize]);
+  }, [handleRandomize, calculateMajorMetrics]);
 
   useEffect(() => {
     if (showStats) {
@@ -196,10 +240,6 @@ export function Start({ onStartSimulation }: { onStartSimulation: (data: any) =>
       document.removeEventListener('click', handleOutsideClick);
     };
   }, [showStats, handleOutsideClick]);
-
-  useEffect(() => {
-    calculateMajorMetrics();
-  }, [calculateMajorMetrics]);
 
   const handleStartSimulation = useCallback(() => {
     const simulationData = {

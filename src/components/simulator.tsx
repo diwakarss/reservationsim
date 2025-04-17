@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -8,20 +8,46 @@ import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/ui/use-toast";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Drawer, DrawerContent, DrawerTrigger, DrawerClose, DrawerTitle } from "@/components/ui/drawer";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
-import { Play, Pause, SkipForward, Rewind, FastForward, SkipBack, StepBack } from "lucide-react";
-import * as RechartsPrimitive from "recharts";
-import { ChartContainer, ChartTooltip, ChartLegend } from "@/components/ui/chart";
+import { Play, Pause, SkipForward, Rewind, FastForward, SkipBack, StepBack, Loader } from "lucide-react";
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
+import { BarChart, CartesianGrid, XAxis, Bar, LineChart, Line, Cell, YAxis } from "recharts";
 import { useSimulationContext } from '@/contexts/simulationcontext';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { SimulationData } from '../app/page';
 import { InfoCircledIcon } from "@radix-ui/react-icons";
+import { calculateNextTimeStep, type ClassMetrics, type ReservationSettings } from '../lib/calculations';
+import type { ChartConfig } from "@/components/ui/chart";
+import { Typography } from "@/components/ui/typography";
+import { ChartLoadingOverlay } from "@/components/chart-loading-overlay";
 
 export interface SimulatorProps {
   initialData: SimulationData;
 }
+
+interface ChartDataPoint {
+  class: string;
+  population?: number;
+  primary?: number;
+  secondary?: number;
+  tertiary?: number;
+  wealth?: number;
+  gdp?: number;
+  poverty?: number;
+  lifeExpectancy?: number;
+  infantMortality?: number;
+  fill: string;
+}
+
+const COLORS = [
+  'hsl(12, 76%, 61%)',   // Red (Class 1)
+  'hsl(173, 58%, 39%)',  // Teal (Class 2)
+  'hsl(197, 37%, 24%)',  // Dark Blue (Class 3)
+  'hsl(43, 74%, 66%)',   // Gold (Class 4)
+  'hsl(27, 87%, 67%)'    // Orange (Class 5)
+];
 
 export function Simulator({ initialData }: SimulatorProps) {
   const { classes } = useSimulationContext();
@@ -61,23 +87,391 @@ export function Simulator({ initialData }: SimulatorProps) {
       percentage: 0,
       allClassesEligible: false
     }
-  });
-  const { toast } = useToast();
+  }); 
+  const { toast } = useToast(); 
 
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
-  const [showStats, setShowStats] = useState(false);
-  const hoverCardRef = useRef<HTMLDivElement | null>(null);
-  const [currentMetrics, setCurrentMetrics] = useState(initialData.majorMetrics);
 
-  const capitalizeFirstLetter = (string: string | undefined) => {
-    if (!string) return '';
-    return string.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+  const [timeStepResults, setTimeStepResults] = useState<Record<number, Record<string, ClassMetrics>>>({});
+  const [currentMetrics, setCurrentMetrics] = useState(initialData.majorMetrics);
+  const [chartData, setChartData] = useState({
+    populationData: [] as any[],
+    educationData: [] as any[],
+    wealthData: [] as any[],
+    socialData: [] as any[]
+  });
+
+  const [chartLoading, setChartLoading] = useState({
+    population: false,
+    education: false,
+    wealth: false,
+    social: false,
+    gdp: false,
+    poverty: false,
+    error: {
+      population: false,
+      education: false,
+      wealth: false,
+      social: false,
+      gdp: false,
+      poverty: false
+    }
+  });
+  const [calculationPending, setCalculationPending] = useState(false);
+  const stableYearTimeout = useRef<NodeJS.Timeout | null>(null);
+  const lastYearChangeTime = useRef<number>(Date.now());
+
+  const handleTotalCapChange = (value: string) => {
+    if (value === '') {
+      setTotalReservationCap(null);
+      // When cap is removed, recalculate remaining quota based on actual reservations
+      const totalReservation = Object.values(classReservations).reduce((sum, val) => sum + val, 0);
+      setRemainingGeneralQuota(Math.max(0, 100 - totalReservation));
+      setErrors(prev => {
+        const { totalCap, ...rest } = prev;
+        return rest;
+      });
+      return;
+    }
+
+    const numValue = parseFloat(value);
+    if (isNaN(numValue)) {
+      setErrors(prev => ({
+        ...prev,
+        totalCap: 'Please enter a valid number'
+      }));
+      return;
+    }
+
+    if (numValue < 0 || numValue > 100) {
+      setErrors(prev => ({
+        ...prev,
+        totalCap: 'Total cap must be between 0% and 100%'
+      }));
+      return;
+    }
+
+    setTotalReservationCap(numValue);
+    setRemainingGeneralQuota(100 - numValue);
+    
+    // Validate existing reservations against new cap
+    const totalReservation = Object.values(classReservations).reduce((sum, val) => sum + val, 0);
+    if (totalReservation > numValue) {
+      setErrors(prev => ({
+        ...prev,
+        totalCap: `Current total reservations (${totalReservation}%) exceed the new cap (${numValue}%)`
+      }));
+    } else {
+      setErrors(prev => {
+        const { totalCap, ...rest } = prev;
+        return rest;
+      });
+    }
   };
 
+  // Memoize settings to prevent unnecessary recalculations
+  const currentSettings = useMemo(() => ({
+    classReservations: savedSettings.classReservations,
+    ewsSettings: savedSettings.ewsSettings,
+    totalReservationCap: savedSettings.totalReservationCap
+  }), [savedSettings]);
+
+  // Memoize the time step calculation
+  const currentTimeStep = useMemo(() => 
+    Math.floor((currentYear - startYear) / 5),
+    [currentYear, startYear]
+  );
+  
+  // Memoize the calculation function with stable dependencies
+  const calculateCurrentMetrics = useCallback((year: number) => {
+    try {
+      const timeStep = Math.floor((year - startYear) / 5);
+      
+      // Set all charts to loading
+      setChartLoading({
+        population: true,
+        education: true,
+        wealth: true,
+        social: true,
+        gdp: true,
+        poverty: true,
+        error: {
+          population: false,
+          education: false,
+          wealth: false,
+          social: false,
+          gdp: false,
+          poverty: false
+        }
+      });
+      
+      // If we already have results for this time step, just update loading and return early
+      if (timeStepResults[timeStep]) {
+        setTimeout(() => {
+          setChartLoading({
+            population: false,
+            education: false,
+            wealth: false,
+            social: false,
+            gdp: false,
+            poverty: false,
+            error: {
+              population: false,
+              education: false,
+              wealth: false,
+              social: false,
+              gdp: false,
+              poverty: false
+            }
+          });
+        }, 500); // Small delay for UX
+        return;
+      }
+      
+      // Get previous time step results or initial conditions
+      const prevTimeStep = timeStep - 1;
+      const prevMetrics = timeStepResults[prevTimeStep] || initialData.metrics;
+
+      // Calculate next time step with proper ReservationSettings type
+      const settings: ReservationSettings = {
+        classReservations: currentSettings.classReservations,
+        ewsSettings: currentSettings.ewsSettings,
+        totalReservationCap: currentSettings.totalReservationCap
+      };
+      const newResults = calculateNextTimeStep(prevMetrics, settings, timeStep);
+      
+      if (!newResults) {
+        // If calculation failed, clear loading
+        setChartLoading({
+          population: false,
+          education: false,
+          wealth: false,
+          social: false,
+          gdp: false,
+          poverty: false,
+          error: {
+            population: false,
+            education: false,
+            wealth: false,
+            social: false,
+            gdp: false,
+            poverty: false
+          }
+        });
+        return;
+      }
+
+      // Calculate aggregated metrics
+      let totalPopulation = 0;
+      let weightedMetrics = {
+        fertility: 0,
+        education: 0,
+        jobs: 0,
+        wealth: 0,
+        poverty: 0,
+        gdp: 0,
+        lifeExpectancy: 0,
+        infantMortality: 0
+      };
+
+      // Calculate weighted metrics based on population distribution
+      Object.values(newResults).forEach((metrics: ClassMetrics) => {
+        totalPopulation += metrics.population;
+        weightedMetrics.fertility += metrics.fertility * metrics.population;
+        weightedMetrics.education += metrics.education.tertiary * metrics.population;
+        weightedMetrics.jobs += metrics.jobAccess * metrics.population;
+        weightedMetrics.wealth += metrics.wealth * metrics.population;
+        weightedMetrics.poverty += metrics.povertyRate * metrics.population;
+        weightedMetrics.gdp += metrics.gdpPerCapita * metrics.population;
+        weightedMetrics.lifeExpectancy += metrics.socialIndicators.lifeExpectancy * metrics.population;
+        weightedMetrics.infantMortality += metrics.socialIndicators.infantMortality * metrics.population;
+      });
+
+      // Normalize weighted metrics
+      Object.keys(weightedMetrics).forEach(key => {
+        weightedMetrics[key as keyof typeof weightedMetrics] /= totalPopulation;
+      });
+
+      // Determine crime level
+      const crimeLevel = weightedMetrics.poverty > 40 && weightedMetrics.education < 50 
+        ? 'very high' 
+        : weightedMetrics.poverty > 30 && weightedMetrics.education < 60 
+          ? 'high' 
+          : weightedMetrics.poverty > 20 && weightedMetrics.education < 70 
+            ? 'medium' 
+            : 'low';
+
+      // Prepare all updates in a batch
+      const updates = {
+        timeStepResults: {
+          ...timeStepResults,
+          [timeStep]: newResults
+        },
+        currentMetrics: {
+          fertilityRate: Number(weightedMetrics.fertility.toFixed(2)),
+          educationAccess: Number(weightedMetrics.education.toFixed(2)),
+          jobAccess: Number(weightedMetrics.jobs.toFixed(2)),
+          wealthDistribution: Number(weightedMetrics.wealth.toFixed(2)),
+          populationInPoverty: Number(weightedMetrics.poverty.toFixed(2)),
+          gdpPerCapita: Number(weightedMetrics.gdp.toFixed(2)),
+          socialIndicators: {
+            lifeExpectancy: Number(weightedMetrics.lifeExpectancy.toFixed(2)),
+            infantMortalityRate: Number(weightedMetrics.infantMortality.toFixed(2)),
+            crimeRates: crimeLevel,
+            trustInGovernment: Math.max(20, Math.min(90, 38 + timeStep))
+          }
+        },
+        chartData: {
+          populationData: classes.map((className, index) => ({
+            class: className,
+            population: newResults[className]?.population || 0,
+            fill: COLORS[index % COLORS.length]
+          })),
+          educationData: classes.map((className, index) => ({
+            class: className,
+            primary: newResults[className]?.education.primary || 0,
+            secondary: newResults[className]?.education.secondary || 0,
+            tertiary: newResults[className]?.education.tertiary || 0,
+            fill: COLORS[index % COLORS.length]
+          })),
+          wealthData: classes.map((className, index) => ({
+            class: className,
+            wealth: newResults[className]?.wealth || 0,
+            gdp: newResults[className]?.gdpPerCapita || 0,
+            poverty: newResults[className]?.povertyRate || 0,
+            fill: COLORS[index % COLORS.length]
+          })),
+          socialData: classes.map((className, index) => ({
+            class: className,
+            lifeExpectancy: newResults[className]?.socialIndicators.lifeExpectancy || 0,
+            infantMortality: newResults[className]?.socialIndicators.infantMortality || 0,
+            fill: COLORS[index % COLORS.length]
+          }))
+        }
+      };
+
+      // Update all state at once to prevent cascading updates
+      setTimeStepResults(updates.timeStepResults);
+      setCurrentMetrics(updates.currentMetrics);
+      setChartData(updates.chartData);
+
+      // Clear loading states with slight delays to show progression
+      setTimeout(() => {
+        setChartLoading(prev => ({ ...prev, population: false }));
+      }, 200);
+      setTimeout(() => {
+        setChartLoading(prev => ({ ...prev, education: false }));
+      }, 400);
+      setTimeout(() => {
+        setChartLoading(prev => ({ ...prev, wealth: false }));
+      }, 600);
+      setTimeout(() => {
+        setChartLoading(prev => ({ ...prev, gdp: false, poverty: false }));
+      }, 800);
+      setTimeout(() => {
+        setChartLoading(prev => ({ ...prev, social: false }));
+      }, 1000);
+
+    } catch (error) {
+      console.error('Error calculating metrics:', error);
+      // Clear loading on error
+      setChartLoading({
+        population: false,
+        education: false,
+        wealth: false,
+        social: false,
+        gdp: false,
+        poverty: false,
+        error: {
+          population: false,
+          education: false,
+          wealth: false,
+          social: false,
+          gdp: false,
+          poverty: false
+        }
+      });
+    }
+  }, [currentSettings, timeStepResults, initialData.metrics, startYear, classes]);
+  
+  // Debounced year change handler with stable reference
+  const debouncedYearChange = useCallback(
+    (value: number[]) => {
+      const newYear = value[0];
+      if (newYear !== currentYear) {
+        setCurrentYear(newYear);
+        lastYearChangeTime.current = Date.now();
+        setCalculationPending(true);
+        
+        // Set all charts to loading
+        setChartLoading({
+          population: true,
+          education: true,
+          wealth: true,
+          social: true,
+          gdp: true,
+          poverty: true,
+          error: {
+            population: false,
+            education: false,
+            wealth: false,
+            social: false,
+            gdp: false,
+            poverty: false
+          }
+        });
+        
+        // Clear any existing timeout
+        if (stableYearTimeout.current) {
+          clearTimeout(stableYearTimeout.current);
+        }
+      }
+    },
+    [currentYear]
+  );
+  
+  // Now add the simulation control functions after calculateCurrentMetrics
+  // Define simulation control functions
   const startSimulation = () => {
     setIsPlaying(true);
+    
+    // Set all charts to loading when play is pressed
+    setChartLoading({
+      population: true,
+      education: true,
+      wealth: true,
+      social: true,
+      gdp: true,
+      poverty: true,
+      error: {
+        population: false,
+        education: false,
+        wealth: false,
+        social: false,
+        gdp: false,
+        poverty: false
+      }
+    });
+    
+    setCalculationPending(true);
+    
+    // Initial calculation to ensure we have data for the first year
+    calculateCurrentMetrics(currentYear);
+    
     intervalRef.current = setInterval(() => {
-      setCurrentYear(prev => Math.min(prev + 5, maxYear));
+      setCurrentYear(prev => {
+        const newYear = Math.min(prev + 5, maxYear);
+        if (newYear !== prev) {
+          lastYearChangeTime.current = Date.now();
+          
+          // Only recalculate if we don't have this timestep already
+          const timeStep = Math.floor((newYear - startYear) / 5);
+          if (!timeStepResults[timeStep]) {
+            calculateCurrentMetrics(newYear);
+          }
+        }
+        return newYear;
+      });
     }, 1000); // Update every second
   };
 
@@ -86,19 +480,256 @@ export function Simulator({ initialData }: SimulatorProps) {
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
     }
+    
+    // When paused, start the 3-second timer for calculations
+    if (stableYearTimeout.current) {
+      clearTimeout(stableYearTimeout.current);
+    }
+    
+    stableYearTimeout.current = setTimeout(() => {
+      calculateCurrentMetrics(currentYear);
+      setCalculationPending(false);
+      
+      // Clear all loading states
+      setChartLoading({
+        population: false,
+        education: false,
+        wealth: false,
+        social: false,
+        gdp: false,
+        poverty: false,
+        error: {
+          population: false,
+          education: false,
+          wealth: false,
+          social: false,
+          gdp: false,
+          poverty: false
+        }
+      });
+    }, 3000);
   };
 
   const rewindToStart = () => {
-    setCurrentYear(startYear);
+    const newYear = startYear;
+    setCurrentYear(newYear);
+    
+    // If year actually changed, start loading
+    if (newYear !== currentYear) {
+      lastYearChangeTime.current = Date.now();
+      setCalculationPending(true);
+      setChartLoading({
+        population: true,
+        education: true,
+        wealth: true,
+        social: true,
+        gdp: true,
+        poverty: true,
+        error: {
+          population: false,
+          education: false,
+          wealth: false,
+          social: false,
+          gdp: false,
+          poverty: false
+        }
+      });
+      
+      // Clear any existing timeout
+      if (stableYearTimeout.current) {
+        clearTimeout(stableYearTimeout.current);
+      }
+      
+      // Set timeout to detect stable year
+      stableYearTimeout.current = setTimeout(() => {
+        calculateCurrentMetrics(newYear);
+        setCalculationPending(false);
+      }, 3000);
+    }
   };
 
   const rewindYear = () => {
-    setCurrentYear(prev => Math.max(startYear, prev - 20));
+    const newYear = Math.max(startYear, currentYear - 20);
+    setCurrentYear(newYear);
+    
+    // If year actually changed, start loading
+    if (newYear !== currentYear) {
+      lastYearChangeTime.current = Date.now();
+      setCalculationPending(true);
+      setChartLoading({
+        population: true,
+        education: true,
+        wealth: true,
+        social: true,
+        gdp: true,
+        poverty: true,
+        error: {
+          population: false,
+          education: false,
+          wealth: false,
+          social: false,
+          gdp: false,
+          poverty: false
+        }
+      });
+      
+      // Clear any existing timeout
+      if (stableYearTimeout.current) {
+        clearTimeout(stableYearTimeout.current);
+      }
+      
+      // Set timeout to detect stable year
+      stableYearTimeout.current = setTimeout(() => {
+        calculateCurrentMetrics(newYear);
+        setCalculationPending(false);
+      }, 3000);
+    }
   };
 
   const skipYear = () => {
-    setCurrentYear(prev => Math.min(maxYear, prev + 20));
+    const newYear = Math.min(currentYear + 20, maxYear);
+    setCurrentYear(newYear);
+    
+    // If year actually changed, start loading
+    if (newYear !== currentYear) {
+      lastYearChangeTime.current = Date.now();
+      setCalculationPending(true);
+      setChartLoading({
+        population: true,
+        education: true,
+        wealth: true,
+        social: true,
+        gdp: true,
+        poverty: true,
+        error: {
+          population: false,
+          education: false,
+          wealth: false,
+          social: false,
+          gdp: false,
+          poverty: false
+        }
+      });
+      
+      // Clear any existing timeout
+      if (stableYearTimeout.current) {
+        clearTimeout(stableYearTimeout.current);
+      }
+      
+      // Set timeout to detect stable year
+      stableYearTimeout.current = setTimeout(() => {
+        calculateCurrentMetrics(newYear);
+        setCalculationPending(false);
+      }, 3000);
+    }
   };
+  
+  // Modify the useEffect to trigger calculation when the year is stable
+  useEffect(() => {
+    // Clear any existing timeout
+    if (stableYearTimeout.current) {
+      clearTimeout(stableYearTimeout.current);
+    }
+    
+    // Set a new timeout to detect when the year has been stable for 3 seconds
+    stableYearTimeout.current = setTimeout(() => {
+      if (calculationPending) {
+        calculateCurrentMetrics(currentYear);
+        setCalculationPending(false);
+        
+        // Clear loading states when calculation completes
+        setChartLoading({
+          population: false,
+          education: false,
+          wealth: false,
+          social: false,
+          gdp: false,
+          poverty: false,
+          error: {
+            population: false,
+            education: false,
+            wealth: false,
+            social: false,
+            gdp: false,
+            poverty: false
+          }
+        });
+      }
+    }, 3000);
+    
+    return () => {
+      if (stableYearTimeout.current) {
+        clearTimeout(stableYearTimeout.current);
+      }
+    };
+  }, [currentYear, calculationPending, calculateCurrentMetrics]);
+
+  // Effect to handle year changes during playback
+  useEffect(() => {
+    if (isPlaying) {
+      lastYearChangeTime.current = Date.now();
+      setCalculationPending(true);
+      
+      // Set all charts to loading during playback
+      setChartLoading({
+        population: true,
+        education: true,
+        wealth: true,
+        social: true,
+        gdp: true,
+        poverty: true,
+        error: {
+          population: false,
+          education: false,
+          wealth: false,
+          social: false,
+          gdp: false,
+          poverty: false
+        }
+      });
+    } else {
+      // If simulation is paused, start the 3-second timer to complete calculations
+      if (calculationPending) {
+        if (stableYearTimeout.current) {
+          clearTimeout(stableYearTimeout.current);
+        }
+        
+        stableYearTimeout.current = setTimeout(() => {
+          calculateCurrentMetrics(currentYear);
+          setCalculationPending(false);
+          
+          // Clear all loading states
+          setChartLoading({
+            population: false,
+            education: false,
+            wealth: false,
+            social: false,
+            gdp: false,
+            poverty: false,
+            error: {
+              population: false,
+              education: false,
+              wealth: false,
+              social: false,
+              gdp: false,
+              poverty: false
+            }
+          });
+        }, 3000);
+      }
+    }
+  }, [isPlaying, currentYear, calculationPending, calculateCurrentMetrics]);
+
+  // Single useEffect to handle metric updates with stable dependencies
+  useEffect(() => {
+    // Calculate metrics for the first time immediately
+    calculateCurrentMetrics(currentYear);
+    
+    // Rest of your useEffect code
+    if (!timeStepResults[currentTimeStep]) {
+      calculateCurrentMetrics(currentYear);
+    }
+  }, [currentTimeStep, calculateCurrentMetrics, currentYear, timeStepResults]);
 
   useEffect(() => {
     const totalReservation = Object.values(classReservations).reduce((sum, val) => sum + val, 0);
@@ -264,6 +895,12 @@ export function Simulator({ initialData }: SimulatorProps) {
       ewsSettings
     });
 
+    // Reset time step results to force recalculation with new settings
+    setTimeStepResults({});
+    
+    // Recalculate metrics with new settings
+    calculateCurrentMetrics(currentYear);
+
     toast({
       description: "Your settings have been saved successfully.",
     });
@@ -281,97 +918,99 @@ export function Simulator({ initialData }: SimulatorProps) {
 
   useEffect(() => {
     if (savedSettings.totalReservationCap !== null || Object.values(savedSettings.classReservations).some(val => val > 0)) {
-      setTotalReservationCap(savedSettings.totalReservationCap);
-      setClassReservations(savedSettings.classReservations);
-      setEwsSettings(savedSettings.ewsSettings);
+    setTotalReservationCap(savedSettings.totalReservationCap);
+    setClassReservations(savedSettings.classReservations);
+    setEwsSettings(savedSettings.ewsSettings);
     }
   }, [savedSettings]);
-  
 
-  // Ensure that sampleData and chartConfig are dynamically mapped based on the classes
-  const sampleData = classes.map((className, index) => ({
-    name: className,
-    value: 500 - index * 100 // Example value, adjust this as per your actual data logic
-  }));
+  const { populationData, educationData, wealthData, socialData } = chartData;
 
-  const chartConfig: Record<string, { color: string }> = {}; // Explicitly typing the chartConfig
-
-  classes.forEach((className, index) => {
-    chartConfig[className] = { color: `hsl(${index * 60}, 100%, 50%)` }; // Example colors, adjust as needed
-  });
-
-  // Reverse the classes array before mapping
-  const reversedClasses = [...classes].reverse();
-
-  const handleTotalCapChange = (value: string) => {
-    if (value === '') {
-      setTotalReservationCap(null);
-      // When cap is removed, recalculate remaining quota based on actual reservations
-      const totalReservation = Object.values(classReservations).reduce((sum, val) => sum + val, 0);
-      setRemainingGeneralQuota(Math.max(0, 100 - totalReservation));
-      setErrors(prev => {
-        const { totalCap, ...rest } = prev;
-        return rest;
-      });
-      return;
-    }
-
-    const numValue = parseFloat(value);
-    if (isNaN(numValue)) {
-      setErrors(prev => ({
-        ...prev,
-        totalCap: 'Please enter a valid number'
-      }));
-      return;
-    }
-
-    if (numValue < 0 || numValue > 100) {
-      setErrors(prev => ({
-        ...prev,
-        totalCap: 'Total cap must be between 0% and 100%'
-      }));
-      return;
-    }
-
-    setTotalReservationCap(numValue);
-    setRemainingGeneralQuota(100 - numValue);
-    
-    // Validate existing reservations against new cap
-    const totalReservation = Object.values(classReservations).reduce((sum, val) => sum + val, 0);
-    if (totalReservation > numValue) {
-      setErrors(prev => ({
-        ...prev,
-        totalCap: `Current total reservations (${totalReservation}%) exceed the new cap (${numValue}%)`
-      }));
-    } else {
-      setErrors(prev => {
-        const { totalCap, ...rest } = prev;
-        return rest;
-      });
+  const chartConfig: ChartConfig = {
+      population: {
+      label: "Population",
+      color: "hsl(var(--chart-1))"
+    },
+    primary: {
+      label: "Primary Education",
+      color: "hsl(var(--chart-2))"
+    },
+    secondary: {
+      label: "Secondary Education",
+      color: "hsl(var(--chart-3))"
+    },
+    tertiary: {
+      label: "Tertiary Education",
+      color: "hsl(var(--chart-4))"
+    },
+    wealth: {
+      label: "Wealth",
+      color: "hsl(var(--chart-5))"
+    },
+    gdp: {
+      label: "GDP per Capita",
+      color: "hsl(var(--chart-6))"
+    },
+    poverty: {
+      label: "Poverty Rate",
+      color: "hsl(var(--chart-7))"
+    },
+    lifeExpectancy: {
+      label: "Life Expectancy",
+      color: "hsl(var(--chart-8))"
+    },
+    infantMortality: {
+      label: "Infant Mortality",
+      color: "hsl(var(--chart-9))"
     }
   };
 
-  const handleCalculateStats = useCallback(() => {
-    setShowStats(true);
-  }, []);
-
-  const handleOutsideClick = useCallback((event: MouseEvent) => {
-    if (hoverCardRef.current && !hoverCardRef.current.contains(event.target as Node)) {
-      setShowStats(false);
+  useEffect(() => {
+    // Set default data if no chart data is available
+    if (chartData.populationData.length === 0) {
+      const defaultClasses = classes.length > 0 ? classes : [
+        "Crystal Elite", 
+        "Crystallized Upper", 
+        "Crystallized Middle", 
+        "Crystallizing Lower", 
+        "Crystallizing Base"
+      ];
+      
+      setChartData({
+        populationData: defaultClasses.map((className, index) => ({
+          class: className,
+          population: 20 + index * 15,
+          fill: COLORS[index % COLORS.length]
+        })),
+        educationData: defaultClasses.map((className, index) => ({
+          class: className,
+          primary: 90 - index * 10,
+          secondary: 80 - index * 10,
+          tertiary: 70 - index * 15,
+          fill: COLORS[index % COLORS.length]
+        })),
+        wealthData: defaultClasses.map((className, index) => ({
+          class: className,
+          wealth: 100 - index * 15,
+          gdp: 80 - index * 10,
+          poverty: 5 + index * 15,
+          fill: COLORS[index % COLORS.length]
+        })),
+        socialData: defaultClasses.map((className, index) => ({
+          class: className,
+          lifeExpectancy: 85 - index * 5,
+          infantMortality: 5 + index * 5,
+          fill: COLORS[index % COLORS.length]
+        }))
+      });
     }
-  }, []);
+  }, [classes, chartData.populationData.length]);
 
   useEffect(() => {
-    if (showStats) {
-      document.addEventListener('click', handleOutsideClick);
-    } else {
-      document.removeEventListener('click', handleOutsideClick);
-    }
-
-    return () => {
-      document.removeEventListener('click', handleOutsideClick);
-    };
-  }, [showStats, handleOutsideClick]);
+    console.log("Chart data:", chartData);
+    console.log("Classes:", classes);
+    console.log("Population data:", chartData.populationData);
+  }, [chartData, classes]);
 
   return (
     <div className="flex flex-col items-center w-full min-h-screen p-4">
@@ -448,221 +1087,416 @@ export function Simulator({ initialData }: SimulatorProps) {
         <Link href="#" className="text-lg font-semibold">
           Logo
         </Link>
-        <HoverCard open={showStats}>
+        <HoverCard>
           <HoverCardTrigger asChild>
-            <Button variant="ghost" onClick={handleCalculateStats}>View Stats</Button>
+            <Button variant="ghost">View Stats</Button>
           </HoverCardTrigger>
-          <HoverCardContent ref={hoverCardRef} className="w-80">
-            <div className="space-y-2">
-              <p><strong>Total Population:</strong> {initialData.population}</p>
-              <p><strong>Planet Name:</strong> {initialData.worldData.planetName}</p>
-              <p><strong>Country Name:</strong> {initialData.worldData.countryName}</p>
-              <div>
-                <h3 className="font-semibold mb-2">Major Metrics:</h3>
-                <TooltipProvider>
-                  <div className="space-y-2">
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <p>Fertility Rate: {currentMetrics.fertilityRate} <InfoCircledIcon className="inline ml-1 h-4 w-4 cursor-help" /></p>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>Average number of children born to a woman over her lifetime.</p>
-                      </TooltipContent>
-                    </Tooltip>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <p>Education Access: {currentMetrics.educationAccess}% <InfoCircledIcon className="inline ml-1 h-4 w-4 cursor-help" /></p>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>Percentage of population with access to primary, secondary, and tertiary education.</p>
-                      </TooltipContent>
-                    </Tooltip>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <p>Job Access: {currentMetrics.jobAccess}% <InfoCircledIcon className="inline ml-1 h-4 w-4 cursor-help" /></p>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>Percentage of working-age population with access to skilled jobs.</p>
-                      </TooltipContent>
-                    </Tooltip>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <p>Wealth Distribution: {currentMetrics.wealthDistribution}% <InfoCircledIcon className="inline ml-1 h-4 w-4 cursor-help" /></p>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>Percentage of total wealth owned by the middle class.</p>
-                      </TooltipContent>
-                    </Tooltip>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <p>Population in Poverty: {currentMetrics.populationInPoverty}% <InfoCircledIcon className="inline ml-1 h-4 w-4 cursor-help" /></p>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>Percentage of total population living below the poverty line.</p>
-                      </TooltipContent>
-                    </Tooltip>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <p>GDP per Capita: {currentMetrics.gdpPerCapita} <InfoCircledIcon className="inline ml-1 h-4 w-4 cursor-help" /></p>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>Average economic output per person.</p>
-                      </TooltipContent>
-                    </Tooltip>
-
-                    <h4 className="font-semibold mt-4 mb-2">Social Indicators:</h4>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <p>Life Expectancy: {currentMetrics.socialIndicators.lifeExpectancy} years <InfoCircledIcon className="inline ml-1 h-4 w-4 cursor-help" /></p>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>Average number of years a person is expected to live.</p>
-                      </TooltipContent>
-                    </Tooltip>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <p>Infant Mortality Rate: {currentMetrics.socialIndicators.infantMortalityRate} <InfoCircledIcon className="inline ml-1 h-4 w-4 cursor-help" /></p>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>Deaths per 1,000 live births before age one.</p>
-                      </TooltipContent>
-                    </Tooltip>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <p>Crime Rates: {currentMetrics.socialIndicators.crimeRates} <InfoCircledIcon className="inline ml-1 h-4 w-4 cursor-help" /></p>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>Overall level of criminal activity in society.</p>
-                      </TooltipContent>
-                    </Tooltip>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <p>Trust in Government: {currentMetrics.socialIndicators.trustInGovernment}% <InfoCircledIcon className="inline ml-1 h-4 w-4 cursor-help" /></p>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>Percentage of population that trusts public institutions.</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </div>
-                </TooltipProvider>
+          <HoverCardContent className="w-96">
+            <div className="space-y-4">
+              <div className="space-y-1">
+                <h4 className="text-sm font-semibold">World Information</h4>
+                <p className="text-sm">Planet Name: {initialData.worldData.planetName}</p>
+                <p className="text-sm">Country Name: {initialData.worldData.countryName}</p>
+                <p className="text-sm">Total Population: {initialData.population}</p>
               </div>
-              <p><strong>Innate Trait:</strong> {initialData.trait ? capitalizeFirstLetter(initialData.trait.trait) : 'None'}</p>
+              <div className="space-y-1">
+                <h4 className="text-sm font-semibold">Major Metrics</h4>
+                <div className="grid grid-cols-2 gap-2">
+                  <p className="text-sm">Fertility Rate: {currentMetrics.fertilityRate}</p>
+                  <p className="text-sm">Education Access: {currentMetrics.educationAccess}%</p>
+                  <p className="text-sm">Job Access: {currentMetrics.jobAccess}%</p>
+                  <p className="text-sm">Wealth Distribution: {currentMetrics.wealthDistribution}%</p>
+                  <p className="text-sm">Population in Poverty: {currentMetrics.populationInPoverty}%</p>
+                  <p className="text-sm">GDP per Capita: {currentMetrics.gdpPerCapita}</p>
+                </div>
+              </div>
+              <div className="space-y-1">
+                <h4 className="text-sm font-semibold">Social Indicators</h4>
+                <div className="grid grid-cols-2 gap-2">
+                  <p className="text-sm">Life Expectancy: {currentMetrics.socialIndicators.lifeExpectancy} years</p>
+                  <p className="text-sm">Infant Mortality Rate: {currentMetrics.socialIndicators.infantMortalityRate}</p>
+                  <p className="text-sm">Crime Rates: {currentMetrics.socialIndicators.crimeRates}</p>
+                  <p className="text-sm">Trust in Government: {currentMetrics.socialIndicators.trustInGovernment}%</p>
+                </div>
+              </div>
+              {initialData.trait && (
+                <div className="space-y-1">
+                  <h4 className="text-sm font-semibold">Innate Trait</h4>
+                  <p className="text-sm">{initialData.trait.trait}</p>
+                </div>
+              )}
             </div>
           </HoverCardContent>
         </HoverCard>
       </header>
-      <main className="flex flex-col items-center w-full max-w-6xl p-4 space-y-8">
+      <main className="flex flex-col items-center w-full max-w-7xl p-4 space-y-8">
         <h1 className="text-3xl font-bold">Reservation Simulator</h1>
+        
+        {calculationPending && (
+          <div className="fixed top-4 right-4 bg-background border rounded-md p-2 shadow-md z-50 flex items-center space-x-2">
+            <Loader className="h-4 w-4 animate-spin text-primary" />
+            <span className="text-sm">Calculating metrics...</span>
+          </div>
+        )}
         
         <div className="grid grid-cols-3 gap-4 w-full">
           <Card>
             <CardHeader>
               <CardTitle>Population Distribution</CardTitle>
+              <CardDescription>By Social Class - {currentYear}</CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="relative h-[300px]">
+              {chartLoading.population && <ChartLoadingOverlay isLoading={true} />}
               <ChartContainer config={chartConfig}>
-                <RechartsPrimitive.BarChart data={sampleData}>
-                  <RechartsPrimitive.Bar dataKey="value" />
-                  <RechartsPrimitive.XAxis dataKey="name" />
-                  <RechartsPrimitive.YAxis />
-                  <ChartTooltip />
-                  <ChartLegend />
-                </RechartsPrimitive.BarChart>
+                <div style={{ filter: 'saturate(150%) brightness(120%)', height: '300px', width: '100%', position: 'relative' }}>
+                  <BarChart
+                    data={populationData} 
+                    barSize={50} 
+                    width={370} 
+                    height={300}
+                    margin={{ top: 20, right: 10, left: 0, bottom: 5 }}
+                  >
+                    <CartesianGrid vertical={false} />
+                    <XAxis
+                      dataKey="class"
+                      tickLine={false}
+                      tick={false}
+                      axisLine={false}
+                    />
+                    <YAxis domain={[0, 'dataMax + 10']} />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <Bar
+                      dataKey="population"
+                      radius={4}
+                      isAnimationActive={false}
+                    >
+                      {populationData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </div>
               </ChartContainer>
             </CardContent>
           </Card>
+
           <Card>
             <CardHeader>
-              <CardTitle>Education Access</CardTitle>
+              <CardTitle>Primary Education Access</CardTitle>
+              <CardDescription>By Social Class - {currentYear}</CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="relative h-[300px]">
+              {chartLoading.education && <ChartLoadingOverlay isLoading={true} />}
               <ChartContainer config={chartConfig}>
-                <RechartsPrimitive.BarChart data={sampleData} layout="vertical">
-                  <RechartsPrimitive.Bar dataKey="value" />
-                  <RechartsPrimitive.XAxis type="number" />
-                  <RechartsPrimitive.YAxis dataKey="name" type="category" />
-                  <ChartTooltip />
-                  <ChartLegend />
-                </RechartsPrimitive.BarChart>
+                <div style={{ filter: 'saturate(150%) brightness(120%)', height: '300px', width: '100%', position: 'relative' }}>
+                  <BarChart
+                    data={educationData} 
+                    barSize={50} 
+                    width={370} 
+                    height={300}
+                    margin={{ top: 20, right: 10, left: 0, bottom: 5 }}
+                  >
+                    <CartesianGrid vertical={false} />
+                    <XAxis
+                      dataKey="class"
+                      tickLine={false}
+                      tick={false}
+                      axisLine={false}
+                    />
+                    <YAxis domain={[0, 105]} />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <Bar 
+                      dataKey="primary" 
+                      radius={[4, 4, 0, 0]} 
+                      isAnimationActive={false}
+                    >
+                      {educationData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </div>
               </ChartContainer>
             </CardContent>
           </Card>
+
           <Card>
             <CardHeader>
-              <CardTitle>Healthcare Access</CardTitle>
+              <CardTitle>Secondary Education Access</CardTitle>
+              <CardDescription>By Social Class - {currentYear}</CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="relative h-[300px]">
+              {chartLoading.education && <ChartLoadingOverlay isLoading={true} />}
               <ChartContainer config={chartConfig}>
-                <RechartsPrimitive.PieChart>
-                  <RechartsPrimitive.Pie data={sampleData} dataKey="value" nameKey="name" />
-                  <ChartTooltip />
-                  <ChartLegend />
-                </RechartsPrimitive.PieChart>
+                <div style={{ filter: 'saturate(150%) brightness(120%)', height: '300px', width: '100%', position: 'relative' }}>
+                  <BarChart
+                    data={educationData} 
+                    barSize={50} 
+                    width={370} 
+                    height={300}
+                    margin={{ top: 20, right: 10, left: 0, bottom: 5 }}
+                  >
+                    <CartesianGrid vertical={false} />
+                    <XAxis
+                      dataKey="class"
+                      tickLine={false}
+                      tick={false}
+                      axisLine={false}
+                    />
+                    <YAxis domain={[0, 105]} />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <Bar 
+                      dataKey="secondary" 
+                      radius={[4, 4, 0, 0]} 
+                      isAnimationActive={false}
+                    >
+                      {educationData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </div>
               </ChartContainer>
             </CardContent>
           </Card>
+
           <Card>
             <CardHeader>
-              <CardTitle>Living Conditions</CardTitle>
+              <CardTitle>Tertiary Education Access</CardTitle>
+              <CardDescription>By Social Class - {currentYear}</CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="relative h-[300px]">
+              {chartLoading.education && <ChartLoadingOverlay isLoading={true} />}
               <ChartContainer config={chartConfig}>
-                <RechartsPrimitive.PieChart>
-                  <RechartsPrimitive.Pie data={sampleData} dataKey="value" nameKey="name" />
-                  <ChartTooltip />
-                  <ChartLegend />
-                </RechartsPrimitive.PieChart>
+                <div style={{ filter: 'saturate(150%) brightness(120%)', height: '300px', width: '100%', position: 'relative' }}>
+                  <BarChart
+                    data={educationData} 
+                    barSize={50} 
+                    width={370} 
+                    height={300}
+                    margin={{ top: 20, right: 10, left: 0, bottom: 5 }}
+                  >
+                    <CartesianGrid vertical={false} />
+                    <XAxis
+                      dataKey="class"
+                      tickLine={false}
+                      tick={false}
+                      axisLine={false}
+                    />
+                    <YAxis domain={[0, 105]} />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <Bar 
+                      dataKey="tertiary" 
+                      radius={[4, 4, 0, 0]} 
+                      isAnimationActive={false}
+                    >
+                      {educationData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </div>
               </ChartContainer>
             </CardContent>
           </Card>
+
           <Card>
             <CardHeader>
-              <CardTitle>Job Distribution</CardTitle>
+              <CardTitle>Wealth Distribution</CardTitle>
+              <CardDescription>By Social Class - {currentYear}</CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="relative h-[300px]">
+              {chartLoading.wealth && <ChartLoadingOverlay isLoading={true} />}
               <ChartContainer config={chartConfig}>
-                <RechartsPrimitive.PieChart>
-                  <RechartsPrimitive.Pie data={sampleData} dataKey="value" nameKey="name" innerRadius="50%" />
-                  <ChartTooltip />
-                  <ChartLegend />
-                </RechartsPrimitive.PieChart>
+                <div style={{ filter: 'saturate(150%) brightness(120%)', height: '300px', width: '100%', position: 'relative' }}>
+                  <BarChart
+                    data={wealthData} 
+                    barSize={50} 
+                    width={370} 
+                    height={300}
+                    margin={{ top: 20, right: 10, left: 0, bottom: 5 }}
+                  >
+                    <CartesianGrid vertical={false} />
+                    <XAxis
+                      dataKey="class"
+                      tickLine={false}
+                      tick={false}
+                      axisLine={false}
+                    />
+                    <YAxis domain={[0, 'dataMax + 10']} />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <Bar 
+                      dataKey="wealth" 
+                      radius={[4, 4, 0, 0]} 
+                      isAnimationActive={false}
+                    >
+                      {wealthData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </div>
               </ChartContainer>
             </CardContent>
           </Card>
-          <div className="grid grid-cols-2 gap-4">
+
             <Card>
               <CardHeader>
-                <CardTitle>MMR</CardTitle>
+              <CardTitle>GDP per Capita</CardTitle>
+              <CardDescription>By Social Class - {currentYear}</CardDescription>
               </CardHeader>
-              <CardContent>
+            <CardContent className="relative h-[300px]">
+              {chartLoading.gdp && <ChartLoadingOverlay isLoading={true} />}
                 <ChartContainer config={chartConfig}>
-                  <RechartsPrimitive.AreaChart data={sampleData}>
-                    <RechartsPrimitive.Area type="monotone" dataKey="value" stackId="1" />
-                    <RechartsPrimitive.XAxis dataKey="name" />
-                    <RechartsPrimitive.YAxis />
-                    <ChartTooltip />
-                    <ChartLegend />
-                  </RechartsPrimitive.AreaChart>
+                <div style={{ filter: 'saturate(150%) brightness(120%)', height: '300px', width: '100%', position: 'relative' }}>
+                  <BarChart
+                    data={wealthData} 
+                    barSize={50} 
+                    width={370} 
+                    height={300}
+                    margin={{ top: 20, right: 10, left: 0, bottom: 5 }}
+                  >
+                    <CartesianGrid vertical={false} />
+                    <XAxis
+                      dataKey="class"
+                      tickLine={false}
+                      tick={false}
+                      axisLine={false}
+                    />
+                    <YAxis domain={[0, 'dataMax + 10']} />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <Bar 
+                      dataKey="gdp" 
+                      radius={[4, 4, 0, 0]} 
+                      isAnimationActive={false}
+                    >
+                      {wealthData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </div>
                 </ChartContainer>
               </CardContent>
             </Card>
+
             <Card>
               <CardHeader>
-                <CardTitle>IMR</CardTitle>
+              <CardTitle>Poverty Rate</CardTitle>
+              <CardDescription>By Social Class - {currentYear}</CardDescription>
               </CardHeader>
-              <CardContent>
+            <CardContent className="relative h-[300px]">
+              {chartLoading.poverty && <ChartLoadingOverlay isLoading={true} />}
                 <ChartContainer config={chartConfig}>
-                  <RechartsPrimitive.AreaChart data={sampleData}>
-                    <RechartsPrimitive.Area type="monotone" dataKey="value" stackId="1" />
-                    <RechartsPrimitive.XAxis dataKey="name" />
-                    <RechartsPrimitive.YAxis />
-                    <ChartTooltip />
-                    <ChartLegend />
-                  </RechartsPrimitive.AreaChart>
+                <div style={{ filter: 'saturate(150%) brightness(120%)', height: '300px', width: '100%', position: 'relative' }}>
+                  <BarChart
+                    data={wealthData} 
+                    barSize={50} 
+                    width={370} 
+                    height={300}
+                    margin={{ top: 20, right: 10, left: 0, bottom: 5 }}
+                  >
+                    <CartesianGrid vertical={false} />
+                    <XAxis
+                      dataKey="class"
+                      tickLine={false}
+                      tick={false}
+                      axisLine={false}
+                    />
+                    <YAxis domain={[0, 'dataMax + 10']} />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <Bar 
+                      dataKey="poverty" 
+                      radius={[4, 4, 0, 0]} 
+                      isAnimationActive={false}
+                    >
+                      {wealthData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </div>
                 </ChartContainer>
               </CardContent>
             </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Life Expectancy</CardTitle>
+              <CardDescription>By Social Class - {currentYear}</CardDescription>
+            </CardHeader>
+            <CardContent className="relative h-[300px]">
+              {chartLoading.social && <ChartLoadingOverlay isLoading={true} />}
+              <ChartContainer config={chartConfig}>
+                <div style={{ filter: 'saturate(150%) brightness(120%)', height: '300px', width: '100%', position: 'relative' }}>
+                  <LineChart
+                    data={socialData} 
+                    width={370} 
+                    height={300}
+                    margin={{ top: 20, right: 10, left: 0, bottom: 5 }}
+                  >
+                    <CartesianGrid vertical={false} strokeDasharray="3 3" />
+                    <XAxis
+                      dataKey="class"
+                      tickLine={false}
+                      tick={false}
+                      axisLine={false}
+                    />
+                    <YAxis domain={[0, 'dataMax + 10']} />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <Line 
+                      type="monotone"
+                      dataKey="lifeExpectancy" 
+                      stroke={COLORS[0]}
+                      strokeWidth={3}
+                      dot={{ r: 6, fill: COLORS[0], strokeWidth: 2 }}
+                      activeDot={{ r: 8 }}
+                      isAnimationActive={false}
+                    />
+                  </LineChart>
           </div>
+              </ChartContainer>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Infant Mortality Rate</CardTitle>
+              <CardDescription>By Social Class - {currentYear}</CardDescription>
+            </CardHeader>
+            <CardContent className="relative h-[300px]">
+              {chartLoading.social && <ChartLoadingOverlay isLoading={true} />}
+              <ChartContainer config={chartConfig}>
+                <div style={{ filter: 'saturate(150%) brightness(120%)', height: '300px', width: '100%', position: 'relative' }}>
+                  <LineChart
+                    data={socialData} 
+                    width={370} 
+                    height={300}
+                    margin={{ top: 20, right: 10, left: 0, bottom: 5 }}
+                  >
+                    <CartesianGrid vertical={false} strokeDasharray="3 3" />
+                    <XAxis
+                      dataKey="class"
+                      tickLine={false}
+                      tick={false}
+                      axisLine={false}
+                    />
+                    <YAxis domain={[0, 'dataMax + 10']} />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <Line 
+                      type="monotone"
+                      dataKey="infantMortality" 
+                      stroke={COLORS[1]} 
+                      strokeWidth={3}
+                      dot={{ r: 6, fill: COLORS[1], strokeWidth: 2 }}
+                      activeDot={{ r: 8 }}
+                      isAnimationActive={false}
+                    />
+                  </LineChart>
+                </div>
+              </ChartContainer>
+            </CardContent>
+          </Card>
         </div>
 
         <div className="w-full space-y-4">
@@ -671,7 +1505,7 @@ export function Simulator({ initialData }: SimulatorProps) {
             max={maxYear}
             step={5}
             value={[currentYear]}
-            onValueChange={(value) => setCurrentYear(value[0])}
+            onValueChange={debouncedYearChange}
           />
           <div className="flex flex-col items-center space-y-2">
             <span className="text-lg font-semibold">{currentYear}</span>

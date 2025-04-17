@@ -2,12 +2,14 @@
 import { useState } from 'react';
 import { Start } from "@/components/start";
 import { Simulator } from "@/components/simulator";
+import { ClassMetrics } from '@/lib/calculations';
 
 export type SimulationData = {
   worldData: { planetName: string; countryName: string };
   trait: { trait: string } | null;
   socialClasses: string[];
   population: string;
+  metrics: Record<string, ClassMetrics>;
   majorMetrics: {
     fertilityRate: number;
     educationAccess: number;

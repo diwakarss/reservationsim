@@ -11,6 +11,7 @@ import { getInitialFertilityRate, getInitialPopulationDistribution, getInitialHi
    getInitialWealthDistribution, getInitialGDPPerCapita, getInitialSocialIndicators, getInitialPopulationInPoverty } from '../config/initialParameters';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSimulationContext } from '@/contexts/simulationcontext';
+import { initialConditions } from '@/lib/calculations';
 
 
 // Skeleton component for loading state
@@ -247,6 +248,7 @@ export function Start({ onStartSimulation }: { onStartSimulation: (data: any) =>
       trait,
       socialClasses,
       population,
+      metrics: initialConditions,
       majorMetrics
     };
 
